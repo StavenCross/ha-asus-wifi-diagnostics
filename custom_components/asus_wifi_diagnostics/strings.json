@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to the ASUS AiMesh controller",
+        "description": "Uses read-only SSH commands to collect 2.4 GHz radio and client diagnostics. SSH must be enabled on every AiMesh node and use the same credentials.",
+        "data": {
+          "host": "Controller IP address",
+          "username": "SSH username",
+          "password": "SSH password",
+          "scan_interval": "Update interval (seconds)",
+          "critical_utilization": "Critical utilization threshold (%)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the router over SSH",
+      "invalid_auth": "Invalid SSH username or password",
+      "unsupported_router": "No supported AiMesh 2.4 GHz interfaces were found",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This router is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "utilization": {"name": "2.4 GHz utilization"},
+      "overlapping_wifi": {"name": "Overlapping Wi-Fi utilization"},
+      "noise_floor": {"name": "Noise floor"},
+      "connected_clients": {"name": "2.4 GHz connected clients"},
+      "diagnosis": {"name": "2.4 GHz diagnosis"},
+      "worst_client": {"name": "Most suspicious client"}
+    },
+    "binary_sensor": {
+      "congested": {"name": "2.4 GHz congested"}
+    }
+  }
+}
+
