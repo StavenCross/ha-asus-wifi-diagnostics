@@ -81,6 +81,7 @@ class NodeSnapshot:
     bssid: str | None = None
     ssid: str | None = None
     nearby_bss: tuple[NearbyBss, ...] = field(default_factory=tuple)
+    same_channel_mesh_bss: tuple[NearbyBss, ...] = field(default_factory=tuple)
     stations: tuple[StationStats, ...] = field(default_factory=tuple)
 
     @property

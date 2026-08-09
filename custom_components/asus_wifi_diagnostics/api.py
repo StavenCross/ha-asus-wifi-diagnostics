@@ -7,10 +7,11 @@ import logging
 import shlex
 from collections.abc import Callable
 from dataclasses import replace
+from time import monotonic
 
 import asyncssh
 
-from .models import MeshNode, NetworkSnapshot, NodeSnapshot
+from .models import MeshNode, NearbyBss, NetworkSnapshot, NodeSnapshot
 from .parser import (
     parse_assoclist,
     parse_bssid,
@@ -25,6 +26,7 @@ from .parser import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_PASSIVE_SCAN_INTERVAL_SECONDS = 15 * 60
 
 
 class AsusWifiDiagnosticsError(Exception):
@@ -60,6 +62,7 @@ class AsusWifiDiagnosticsApi:
         self.host_keys = host_keys or {}
         self.host_key_callback = host_key_callback
         self._station_counters: dict[tuple[str, str], tuple[int, int, int | None]] = {}
+        self._last_passive_scan: dict[str, float] = {}
 
     async def _connect(self, host: str) -> asyncssh.SSHClientConnection:
         try:
@@ -157,12 +160,28 @@ class AsusWifiDiagnosticsApi:
                 mac = first_line.strip().upper()
                 stations.append(parse_station_stats(mac, body, leases.get(mac)))
 
+        channel = parse_channel_stats(channel_raw)
+        nearby_bss = tuple(parse_scan_results(scan_raw))
+        last_scan = self._last_passive_scan.get(node.host, 0)
+        if monotonic() - last_scan >= _PASSIVE_SCAN_INTERVAL_SECONDS:
+            try:
+                fresh_scan_raw = await self._run(
+                    node.host,
+                    f"wl -i {radio} scan -t passive -c {channel.channel} "
+                    f">/dev/null 2>&1 && sleep 1 && "
+                    f"wl -i {radio} scanresults 2>/dev/null | head -n 1024",
+                )
+                nearby_bss = tuple(parse_scan_results(fresh_scan_raw))
+                self._last_passive_scan[node.host] = monotonic()
+            except AsusWifiDiagnosticsError as err:
+                _LOGGER.debug("Passive scan unavailable on %s: %s", node.host, err)
+
         return NodeSnapshot(
             node=node,
-            channel=parse_channel_stats(channel_raw),
+            channel=channel,
             bssid=parse_bssid(bssid_raw),
             ssid=parse_ssid(ssid_raw),
-            nearby_bss=tuple(parse_scan_results(scan_raw)),
+            nearby_bss=nearby_bss,
             stations=tuple(stations),
         )
 
@@ -181,6 +200,7 @@ class AsusWifiDiagnosticsApi:
             for result in results
             if isinstance(result, NodeSnapshot) and result.bssid is not None
         }
+        reachable = [result for result in results if isinstance(result, NodeSnapshot)]
         snapshots: dict[str, NodeSnapshot] = {}
         for node, result in zip(nodes, results, strict=True):
             if isinstance(result, Exception):
@@ -221,9 +241,22 @@ class AsusWifiDiagnosticsApi:
                 replace(network, is_own_mesh=network.bssid in own_bssids)
                 for network in result.nearby_bss
             )
+            same_channel_mesh_bss = tuple(
+                NearbyBss(
+                    ssid=other.ssid or "Unknown mesh SSID",
+                    bssid=other.bssid,
+                    channel=other.channel.channel,
+                    is_own_mesh=True,
+                )
+                for other in reachable
+                if other.bssid is not None
+                and other.bssid != result.bssid
+                and other.channel.channel == result.channel.channel
+            )
             snapshots[node.mac] = replace(
                 result,
                 nearby_bss=nearby_bss,
+                same_channel_mesh_bss=same_channel_mesh_bss,
                 stations=tuple(stations),
             )
         if not snapshots:

@@ -11,8 +11,8 @@ For each AiMesh node:
 
 - 2.4 GHz channel utilization and a critical-congestion binary sensor
 - other Wi-Fi airtime (the Broadcom OBSS counter) and radio noise floor
-- cached nearby BSSID context that separates known AiMesh radios from external
-  Wi-Fi without initiating potentially disruptive active scans
+- nearby BSSID context that separates known AiMesh radios from external Wi-Fi
+  using an infrequent passive scan limited to the radio's current channel
 - connected 2.4 GHz client count
 - an IP-sorted client map in the connected-client sensor attributes for native
   Home Assistant dashboards
@@ -22,14 +22,16 @@ For each AiMesh node:
   per-poll retry percentage and failure deltas as attributes
 
 The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
-`wl chanim_stats`, `wl cur_etheraddr`, `wl ssid`, cached `wl scanresults`,
-`wl assoclist`, `wl sta_info`, and a dnsmasq lease read).
+`wl chanim_stats`, `wl cur_etheraddr`, `wl ssid`, a current-channel passive
+`wl scan`, `wl scanresults`, `wl assoclist`, `wl sta_info`, and a dnsmasq lease
+read).
 It never changes router configuration.
 
-`scanresults` reads the router's existing scan cache; the integration does not
-trigger an active radio scan. A cache can be empty or stale, so nearby BSSID
-lists are context for the OBSS airtime counter rather than a complete site
-survey.
+Every 15 minutes, the integration passively scans only the channel the radio is
+already using. It sends no probe requests and does not hop to other channels.
+This is deliberately narrower and less disruptive than a site survey: it finds
+the BSSIDs relevant to current-channel OBSS airtime, not every Wi-Fi network in
+range.
 
 ## Supported hardware
 

@@ -100,8 +100,12 @@ def _other_wifi_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
     return {
         "local_bssid": snapshot.bssid,
         "local_ssid": snapshot.ssid,
-        "scan_source": "router_cached_scan_results",
+        "scan_source": "current_channel_passive_scan",
         "scan_available": bool(snapshot.nearby_bss),
+        "same_channel_mesh_radios": len(snapshot.same_channel_mesh_bss),
+        "same_channel_mesh_bssids": [
+            network_attrs(network) for network in snapshot.same_channel_mesh_bss
+        ],
         "own_mesh_bssids_seen": len(own_mesh),
         "external_bssids_seen": len(external),
         "own_mesh_bssids": [network_attrs(network) for network in own_mesh[:32]],
