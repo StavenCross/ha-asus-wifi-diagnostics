@@ -55,6 +55,35 @@ def _worst_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
     }
 
 
+def _client_map_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
+    """Return a bounded, IP-sorted client map for dashboard rendering."""
+
+    def ip_key(station) -> tuple[int, int, int, int]:
+        if not station.ip:
+            return (999, 999, 999, 999)
+        try:
+            parts = tuple(int(part) for part in station.ip.split("."))
+        except ValueError:
+            return (999, 999, 999, 999)
+        return parts if len(parts) == 4 else (999, 999, 999, 999)
+
+    return {
+        "clients": [
+            {
+                "name": station.name,
+                "ip": station.ip,
+                "mac": station.mac,
+                "rssi": station.rssi,
+                "tx_rate_mbps": station.tx_rate_mbps,
+                "rx_rate_mbps": station.rx_rate_mbps,
+                "tx_retry_percent": station.retry_percent,
+                "tx_failures": station.tx_failures,
+            }
+            for station in sorted(snapshot.stations, key=ip_key)
+        ]
+    }
+
+
 SENSORS = (
     AsusWifiSensorDescription(
         key="utilization",
@@ -84,6 +113,7 @@ SENSORS = (
         translation_key="connected_clients",
         icon="mdi:devices",
         value_fn=lambda snapshot: len(snapshot.stations),
+        attrs_fn=_client_map_attrs,
     ),
     AsusWifiSensorDescription(
         key="diagnosis",
@@ -149,4 +179,3 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
         if self.entity_description.attrs_fn:
             base.update(self.entity_description.attrs_fn(snapshot))
         return base
-

@@ -12,6 +12,8 @@ For each AiMesh node:
 - 2.4 GHz channel utilization and a critical-congestion binary sensor
 - overlapping Wi-Fi utilization and radio noise floor
 - connected 2.4 GHz client count
+- an IP-sorted client map in the connected-client sensor attributes for native
+  Home Assistant dashboards
 - a conservative diagnosis: normal, neighboring Wi-Fi, non-Wi-Fi
   interference, client pressure, or general congestion
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
