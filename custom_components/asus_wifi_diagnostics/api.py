@@ -56,7 +56,7 @@ class AsusWifiDiagnosticsApi:
         self.password = password
         self.host_keys = host_keys or {}
         self.host_key_callback = host_key_callback
-        self._station_counters: dict[tuple[str, str], tuple[int, int]] = {}
+        self._station_counters: dict[tuple[str, str], tuple[int, int, int | None]] = {}
 
     async def _connect(self, host: str) -> asyncssh.SSHClientConnection:
         try:
@@ -174,14 +174,30 @@ class AsusWifiDiagnosticsApi:
                 key = (node.mac, station.mac)
                 previous = self._station_counters.get(key)
                 retry_percent = None
+                failure_delta = None
                 if station.tx_packets is not None and station.tx_retries is not None:
-                    self._station_counters[key] = (station.tx_packets, station.tx_retries)
+                    self._station_counters[key] = (
+                        station.tx_packets,
+                        station.tx_retries,
+                        station.tx_failures,
+                    )
                     if previous:
                         packet_delta = station.tx_packets - previous[0]
                         retry_delta = station.tx_retries - previous[1]
                         if packet_delta > 0 and retry_delta >= 0:
-                            retry_percent = round(100 * retry_delta / packet_delta, 1)
-                stations.append(replace(station, retry_percent_value=retry_percent))
+                            attempts = packet_delta + retry_delta
+                            retry_percent = round(100 * retry_delta / attempts, 1)
+                        if station.tx_failures is not None and previous[2] is not None:
+                            raw_failure_delta = station.tx_failures - previous[2]
+                            if raw_failure_delta >= 0:
+                                failure_delta = raw_failure_delta
+                stations.append(
+                    replace(
+                        station,
+                        retry_percent_value=retry_percent,
+                        tx_failures=failure_delta,
+                    )
+                )
             snapshots[node.mac] = replace(result, stations=tuple(stations))
         if not snapshots:
             raise CannotConnectError("No AiMesh node returned diagnostics")

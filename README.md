@@ -15,7 +15,7 @@ For each AiMesh node:
 - a conservative diagnosis: normal, neighboring Wi-Fi, non-Wi-Fi
   interference, client pressure, or general congestion
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
-  per-poll retry percentage, and failures as attributes
+  per-poll retry percentage and failure deltas as attributes
 
 The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
 `wl chanim_stats`, `wl assoclist`, `wl sta_info`, and a dnsmasq lease read).
