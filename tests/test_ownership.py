@@ -3,6 +3,8 @@
 from custom_components.asus_wifi_diagnostics.ownership import (
     OwnershipIndex,
     OwnershipRecord,
+    _unique_records,
+    macs_in_identifier,
     normalize_ip,
     normalize_mac,
 )
@@ -24,8 +26,12 @@ PRINTER = OwnershipRecord(
 def test_normalize_network_identities() -> None:
     assert normalize_mac("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF"
     assert normalize_mac("not-a-mac") is None
+    assert normalize_mac("aabbccddeeff") == "AA:BB:CC:DD:EE:FF"
     assert normalize_ip("192.168.50.41") == "192.168.50.41"
     assert normalize_ip("printer.local") is None
+    assert macs_in_identifier("cfe92100-67c4-11d4-a45f-6855d433cf42") == {
+        "68:55:D4:33:CF:42"
+    }
 
 
 def test_exact_mac_match_includes_ha_navigation_metadata() -> None:
@@ -78,3 +84,13 @@ def test_unmapped_client_is_explicit() -> None:
         "ha_match_method": "unmapped",
         "ha_match_confidence": "none",
     }
+
+
+def test_network_discovery_duplicate_does_not_hide_real_owner() -> None:
+    network_copy = OwnershipRecord(
+        device_id="network-copy",
+        name="Office camera tracker",
+        integrations=("asusrouter",),
+    )
+    result = _unique_records({"AA:BB:CC:DD:EE:FF": [CAMERA, network_copy]})
+    assert result["AA:BB:CC:DD:EE:FF"] == CAMERA

@@ -18,7 +18,23 @@ def normalize_mac(value: str | None) -> str | None:
     if not value:
         return None
     candidate = value.strip().replace("-", ":").upper()
+    if re.fullmatch(r"[0-9A-F]{12}", candidate):
+        candidate = ":".join(candidate[index : index + 2] for index in range(0, 12, 2))
     return candidate if _MAC_RE.fullmatch(candidate) else None
+
+
+def macs_in_identifier(value: str) -> set[str]:
+    """Extract complete MAC identities embedded in an integration identifier."""
+    compact_matches = re.findall(r"(?<![0-9A-Fa-f])([0-9A-Fa-f]{12})(?![0-9A-Fa-f])", value)
+    delimited_matches = re.findall(
+        r"(?<![0-9A-Fa-f])((?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2})(?![0-9A-Fa-f])",
+        value,
+    )
+    return {
+        mac
+        for candidate in [*compact_matches, *delimited_matches]
+        if (mac := normalize_mac(candidate))
+    }
 
 
 def normalize_ip(value: str | None) -> str | None:
@@ -103,10 +119,14 @@ class OwnershipIndex:
 def _unique_records(
     candidates: dict[str, list[OwnershipRecord]],
 ) -> dict[str, OwnershipRecord]:
-    """Keep only identities that resolve to one HA device."""
+    """Keep identities with one non-network-source HA owner."""
     result: dict[str, OwnershipRecord] = {}
     for identity, records in candidates.items():
-        unique = {record.device_id: record for record in records}
+        unique = {
+            record.device_id: record
+            for record in records
+            if set(record.integrations) - {"asusrouter", "asus_wifi_diagnostics"}
+        }
         if len(unique) == 1:
             result[identity] = next(iter(unique.values()))
     return result
@@ -149,6 +169,10 @@ def build_ownership_index(hass) -> OwnershipIndex:
             if connection_type == dr.CONNECTION_NETWORK_MAC and (
                 mac := normalize_mac(value)
             ):
+                mac_candidates.setdefault(mac, []).append(record)
+
+        for _, identifier in device.identifiers:
+            for mac in macs_in_identifier(identifier):
                 mac_candidates.setdefault(mac, []).append(record)
 
         for entity in entities:
