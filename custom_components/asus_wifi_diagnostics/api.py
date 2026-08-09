@@ -201,6 +201,23 @@ class AsusWifiDiagnosticsApi:
             if isinstance(result, NodeSnapshot) and result.bssid is not None
         }
         reachable = [result for result in results if isinstance(result, NodeSnapshot)]
+        mesh_ssids = {result.ssid for result in reachable if result.ssid}
+
+        def is_own_mesh_bss(network: NearbyBss) -> bool:
+            if network.bssid in own_bssids:
+                return True
+            if network.ssid not in mesh_ssids:
+                return False
+            network_parts = network.bssid.split(":")
+            for candidate in reachable:
+                node_parts = candidate.node.mac.split(":")
+                if network_parts[1:5] != node_parts[1:5]:
+                    continue
+                suffix_delta = (int(network_parts[5], 16) - int(node_parts[5], 16)) % 256
+                if suffix_delta <= 15:
+                    return True
+            return False
+
         snapshots: dict[str, NodeSnapshot] = {}
         for node, result in zip(nodes, results, strict=True):
             if isinstance(result, Exception):
@@ -238,7 +255,7 @@ class AsusWifiDiagnosticsApi:
                     )
                 )
             nearby_bss = tuple(
-                replace(network, is_own_mesh=network.bssid in own_bssids)
+                replace(network, is_own_mesh=is_own_mesh_bss(network))
                 for network in result.nearby_bss
             )
             same_channel_mesh_bss = tuple(

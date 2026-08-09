@@ -36,7 +36,7 @@ def station_interface_for(model: str, is_controller: bool, radio_interface: str)
     if is_controller:
         return radio_interface
     normalized = normalize_model(model)
-    if "GT6" in normalized or "GT10" in normalized or "AX95Q" in normalized:
+    if "GT6" in normalized or "GT10" in normalized:
         return "wl2.1"
     return "wl0.1"
 
@@ -117,7 +117,7 @@ def parse_scan_results(raw: str) -> list[NearbyBss]:
     for block in blocks:
         ssid_match = re.search(r'^\s*SSID:\s*"(?P<ssid>.*)"\s*$', block, re.MULTILINE)
         bssid_match = re.search(
-            rf"^\s*BSSID:\s*(?P<bssid>{_MAC_RE.pattern})\s*$", block, re.MULTILINE
+            rf"^\s*BSSID:\s*(?P<bssid>{_MAC_RE.pattern})(?:\s|$)", block, re.MULTILINE
         )
         if not ssid_match or not bssid_match:
             continue

@@ -31,6 +31,11 @@ def test_parse_gt6_satellite_uses_third_radio_bss() -> None:
     assert node.station_interface == "wl2.1"
 
 
+def test_parse_ax95q_satellite_uses_primary_radio_bss() -> None:
+    node = parse_mesh_nodes("<RT-AX95Q>192.168.50.109>04:42:1A:38:B3:D0>0")[0]
+    assert node.station_interface == "wl0.1"
+
+
 def test_parse_chanim_v4() -> None:
     raw = """version: 4
 chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise idle busy timestamp
@@ -77,11 +82,11 @@ def test_parse_bssid_and_ssid() -> None:
 def test_parse_scan_results_is_signal_sorted_and_deduplicated() -> None:
     raw = """SSID: "Neighbor"
 Mode: Managed RSSI: -71 dBm SNR: 20 dB noise: -91 dBm Channel: 1
-BSSID: 11:22:33:44:55:66
+BSSID: 11:22:33:44:55:66 Capability: ESS
 Capability: ESS
 SSID: "TheOneAndOnly"
 Mode: Managed RSSI: -45 dBm SNR: 46 dB noise: -91 dBm Channel: 6
-BSSID: AA:BB:CC:DD:EE:FF
+BSSID: AA:BB:CC:DD:EE:FF Capability: ESS WEP ShortSlot RRM
 Capability: ESS
 SSID: "Neighbor"
 Mode: Managed RSSI: -70 dBm SNR: 21 dB noise: -91 dBm Channel: 1
