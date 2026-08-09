@@ -85,6 +85,14 @@ chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise 
     assert parse_channel_stats(raw).channel == 11
 
 
+def test_parse_5ghz_width_suffixed_chanspec() -> None:
+    raw = """version: 4
+chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise idle busy timestamp
+36/160 10 3 29 5 9 0 42 1 1 2279 41 -92 51 54 668304384
+"""
+    assert parse_channel_stats(raw).channel == 36
+
+
 def test_parse_clients_and_leases() -> None:
     assert parse_assoclist("assoclist AA:BB:CC:DD:EE:FF\nassoclist 11:22:33:44:55:66") == [
         "AA:BB:CC:DD:EE:FF",

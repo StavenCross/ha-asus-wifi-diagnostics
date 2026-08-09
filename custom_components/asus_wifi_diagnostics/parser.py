@@ -112,8 +112,13 @@ def parse_channel_stats(raw: str) -> ChannelStats:
     values = lines[header_index + 1].split()
     row = dict(zip(headers, values, strict=False))
     idle = int(row["idle"])
-    chanspec = int(row["chanspec"], 0)
-    channel = chanspec & 0xFF if chanspec > 255 else chanspec
+    raw_chanspec = row["chanspec"]
+    width_suffixed = re.fullmatch(r"(?P<channel>\d+)/(?:20|40|80|160|320)", raw_chanspec)
+    if width_suffixed:
+        channel = int(width_suffixed.group("channel"))
+    else:
+        chanspec = int(raw_chanspec, 0)
+        channel = chanspec & 0xFF if chanspec > 255 else chanspec
     return ChannelStats(
         channel=channel,
         tx=int(row["tx"]),
