@@ -167,7 +167,7 @@ class OwnershipIndex:
                 score = max(score, 55)
                 evidence.append("manufacturer in network name")
 
-            if score >= 55 and node_area_id and record.area_id == node_area_id:
+            if score >= 85 and node_area_id and record.area_id == node_area_id:
                 score += 10
                 evidence.append("same area as current mesh node")
             if score >= 65:
@@ -200,6 +200,20 @@ class OwnershipIndex:
                 scored.append(
                     (95, root, ["unique integration root for base station hostname"])
                 )
+
+        # Prefer the more specific device name when both a compound name and
+        # one of its component words match (for example Dishwasher vs Washer).
+        scored = [
+            item
+            for item in scored
+            if not any(
+                item[1].device_id != other[1].device_id
+                and len(_compact(item[1].name)) < len(_compact(other[1].name))
+                and _compact(item[1].name) in _compact(other[1].name)
+                and item[0] <= other[0]
+                for other in scored
+            )
+        ]
 
         scored.sort(key=lambda item: (-item[0], item[1].name.casefold()))
         return [
@@ -274,12 +288,20 @@ def build_ownership_index(hass) -> OwnershipIndex:
             (entity.area_id for entity in entities if entity.area_id), None
         )
         area = area_registry.async_get_area(area_id) if area_id else None
+        identifier_integrations = {
+            str(integration) for integration, _ in device.identifiers
+        }
         record = OwnershipRecord(
             device_id=device.id,
             name=device.name_by_user or device.name or device.id,
             area_id=area_id,
             area_name=area.name if area else None,
-            integrations=tuple(sorted({entity.platform for entity in entities})),
+            integrations=tuple(
+                sorted(
+                    {entity.platform for entity in entities}
+                    | identifier_integrations
+                )
+            ),
             manufacturer=device.manufacturer,
             model=device.model,
             via_device_id=device.via_device_id,

@@ -191,3 +191,36 @@ def test_unique_base_station_root_is_suggested() -> None:
     assert len(suggestions) == 1
     assert suggestions[0]["ha_device_id"] == "system"
     assert suggestions[0]["score"] == 95
+
+
+def test_manufacturer_and_area_alone_do_not_suggest_sibling_devices() -> None:
+    curtain = OwnershipRecord(
+        device_id="curtain",
+        name="Back curtain",
+        area_id="living_room",
+        integrations=("switchbot_cloud",),
+        manufacturer="SwitchBot",
+        model="Curtain3",
+    )
+    index = OwnershipIndex({}, {}, {curtain.device_id: curtain})
+    assert index.suggest("SwitchBot-HubMini-CCB511", "living_room") == []
+
+
+def test_more_specific_compound_device_name_wins() -> None:
+    dishwasher = OwnershipRecord(
+        device_id="dishwasher",
+        name="Dishwasher",
+        integrations=("lg_thinq",),
+        manufacturer="LGE",
+    )
+    washer = OwnershipRecord(
+        device_id="washer",
+        name="Washer",
+        integrations=("smartthings",),
+        manufacturer="LGE",
+    )
+    index = OwnershipIndex(
+        {}, {}, {dishwasher.device_id: dishwasher, washer.device_id: washer}
+    )
+    suggestions = index.suggest("LG_Smart_DishWasher2_open")
+    assert [item["ha_device_id"] for item in suggestions] == ["dishwasher"]
