@@ -8,6 +8,9 @@ PLATFORMS = ["sensor", "binary_sensor", "event"]
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_CRITICAL_UTILIZATION = "critical_utilization"
 CONF_HOST_KEYS = "host_keys"
+CONF_CLIENT_OVERRIDES = "client_overrides"
+CONF_CLIENT_MAC = "client_mac"
+CONF_HA_DEVICE_ID = "ha_device_id"
 
 DEFAULT_SCAN_INTERVAL = 30
 DEFAULT_CRITICAL_UTILIZATION = 90

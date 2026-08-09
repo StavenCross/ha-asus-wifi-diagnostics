@@ -18,6 +18,9 @@ For each AiMesh node:
 - connected 2.4 GHz client count
 - an IP-sorted client map in the connected-client sensor attributes for native
   Home Assistant dashboards
+- conservative Home Assistant ownership matching for every client. Exact MAC
+  registry connections are preferred, current entity IPs are a labeled weaker
+  fallback, and unmatched clients remain explicitly unmapped
 - a conservative diagnosis: normal, other Wi-Fi contention, non-Wi-Fi
   interference, client pressure, or general congestion
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
@@ -72,6 +75,18 @@ The incident event is deliberately sparse: high utilization must remain above
 the configured critical threshold for one minute before it is recorded. Client
 and nearby-network lists are bounded so Recorder does not ingest a full network
 inventory every 30 seconds.
+
+### Home Assistant device ownership
+
+Each client record includes `ha_mapped`, the match method and confidence, and,
+when matched, the Home Assistant device ID, name, area, integrations, and device
+page URL. The integration never assigns ownership from hostname alone.
+
+Some integrations do not expose a device MAC or IP. To add a portable manual
+association, open **Settings > Devices & services > ASUS Wi-Fi Diagnostics >
+Configure > Add a manual client mapping**. Choose the Home Assistant device and
+enter the network client's MAC. Manual mappings are stored in config-entry
+options and are included in normal Home Assistant backups.
 
 ## Supported hardware
 

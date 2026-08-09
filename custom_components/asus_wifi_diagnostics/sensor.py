@@ -326,6 +326,20 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
         }
         if self.entity_description.attrs_fn:
             base.update(self.entity_description.attrs_fn(snapshot))
+        if self.entity_description.key == "connected_clients":
+            base["clients"] = [
+                {
+                    **client,
+                    **self.coordinator.ownership_for(client.get("mac"), client.get("ip")),
+                }
+                for client in base.get("clients", [])
+            ]
+            base["mapped_clients"] = sum(
+                1 for client in base["clients"] if client.get("ha_mapped")
+            )
+            base["unmapped_clients"] = len(base["clients"]) - base["mapped_clients"]
+        elif self.entity_description.key.startswith("worst_client"):
+            base.update(self.coordinator.ownership_for(base.get("mac"), base.get("ip")))
         return base
 
 

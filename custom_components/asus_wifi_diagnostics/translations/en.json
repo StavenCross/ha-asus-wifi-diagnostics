@@ -11,8 +11,37 @@
           "scan_interval": "Update interval (seconds)",
           "critical_utilization": "Critical utilization threshold (%)"
         }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage client ownership",
+        "menu_options": {
+          "add_mapping": "Add a manual client mapping",
+          "remove_mapping": "Remove a manual client mapping"
+        }
+      },
+      "add_mapping": {
+        "title": "Add a manual client mapping",
+        "description": "Use this only when Home Assistant does not expose the device MAC or IP. The mapping is stored with the integration and included in Home Assistant backups.",
+        "data": {
+          "client_mac": "Network client MAC address",
+          "ha_device_id": "Home Assistant device"
+        }
+      },
+      "remove_mapping": {
+        "title": "Remove a manual client mapping",
+        "data": {
+          "client_mac": "Manual mapping"
+        }
       }
     },
+    "error": {
+      "invalid_mac": "Enter a complete MAC address such as AA:BB:CC:DD:EE:FF",
+      "device_not_found": "The selected Home Assistant device no longer exists"
+    }
+  },
     "error": {
       "cannot_connect": "Unable to connect to the router over SSH",
       "invalid_auth": "Invalid SSH username or password",

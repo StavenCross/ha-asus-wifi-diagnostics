@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import AsusWifiDiagnosticsApi
 from .const import (
+    CONF_CLIENT_OVERRIDES,
     CONF_HOST_KEYS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
@@ -47,6 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AsusWifiDiagnosticsConfi
         hass,
         api,
         timedelta(seconds=entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
+        manual_overrides=dict(entry.options.get(CONF_CLIENT_OVERRIDES, {})),
     )
     coordinator.webhook_id = f"{DOMAIN}_{entry.entry_id}"
     await coordinator.async_config_entry_first_refresh()

@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from .api import AsusWifiDiagnosticsApi, AsusWifiDiagnosticsError
 from .const import DISCOVERY_INTERVAL, DOMAIN
 from .models import MeshNode, NetworkSnapshot, ProbeSnapshot
+from .ownership import OwnershipIndex, build_ownership_index
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         hass: HomeAssistant,
         api: AsusWifiDiagnosticsApi,
         update_interval: timedelta,
+        manual_overrides: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -37,10 +39,13 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         self._last_discovery: datetime | None = None
         self.last_node_success: dict[str, datetime] = {}
         self.webhook_id = ""
+        self.manual_overrides = manual_overrides or {}
+        self.ownership = OwnershipIndex({}, {}, {})
 
     async def _async_update_data(self) -> NetworkSnapshot:
         now = dt_util.utcnow()
         try:
+            self.ownership = build_ownership_index(self.hass)
             if (
                 not self.nodes
                 or self._last_discovery is None
@@ -65,6 +70,11 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
             return snapshot
         except AsusWifiDiagnosticsError as err:
             raise UpdateFailed(str(err)) from err
+
+    @callback
+    def ownership_for(self, mac: str | None, ip: str | None) -> dict:
+        """Return Home Assistant ownership attributes for a router client."""
+        return self.ownership.resolve(mac, ip, self.manual_overrides)
 
     @callback
     def snapshot_for(self, mac: str):
