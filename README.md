@@ -42,7 +42,9 @@ Please open an issue with the model and safe interface mapping to add hardware.
    **Integration** repository.
 3. Download **ASUS Wi-Fi Diagnostics** and restart Home Assistant.
 4. Open **Settings > Devices & services > Add integration**, search for
-   **ASUS Wi-Fi Diagnostics**, and enter the AiMesh controller SSH details.
+   **ASUS Wi-Fi Diagnostics**, and enter the AiMesh controller SSH details. If
+   AsusRouter is already configured for that host, leave the credentials blank
+   to reuse them without displaying or retyping the password.
 
 SSH must be enabled on the controller and nodes, with the same username and
 password. A 30-second interval is the recommended starting point. Host-key

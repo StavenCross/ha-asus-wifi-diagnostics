@@ -41,36 +41,61 @@ class AsusWifiDiagnosticsConfigFlow(ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             fingerprints: dict[str, str] = {}
 
+            username = user_input.get(CONF_USERNAME, "").strip()
+            password = user_input.get(CONF_PASSWORD, "")
+            if not username or not password:
+                for asusrouter_entry in self.hass.config_entries.async_entries(
+                    "asusrouter"
+                ):
+                    if str(asusrouter_entry.data.get(CONF_HOST, "")).lower() != host:
+                        continue
+                    username = username or asusrouter_entry.data.get(CONF_USERNAME, "")
+                    password = password or asusrouter_entry.data.get(CONF_PASSWORD, "")
+                    break
+
+            if not username or not password:
+                errors["base"] = "missing_credentials"
+
+            data = {
+                **user_input,
+                CONF_HOST: host,
+                CONF_USERNAME: username,
+                CONF_PASSWORD: password,
+            }
+
             def record_key(key_host: str, fingerprint: str) -> None:
                 fingerprints[key_host] = fingerprint
 
-            api = AsusWifiDiagnosticsApi(
-                host=host,
-                username=user_input[CONF_USERNAME],
-                password=user_input[CONF_PASSWORD],
-                host_key_callback=record_key,
-            )
-            try:
-                await api.discover_nodes()
-            except AuthenticationError:
-                errors["base"] = "invalid_auth"
-            except UnsupportedRouterError:
-                errors["base"] = "unsupported_router"
-            except CannotConnectError:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(
-                    title=f"ASUS Wi-Fi Diagnostics ({host})",
-                    data={**user_input, CONF_HOST: host, CONF_HOST_KEYS: fingerprints},
+            if not errors:
+                api = AsusWifiDiagnosticsApi(
+                    host=host,
+                    username=username,
+                    password=password,
+                    host_key_callback=record_key,
                 )
+                try:
+                    await api.discover_nodes()
+                except AuthenticationError:
+                    errors["base"] = "invalid_auth"
+                except UnsupportedRouterError:
+                    errors["base"] = "unsupported_router"
+                except CannotConnectError:
+                    errors["base"] = "cannot_connect"
+                except Exception:
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_create_entry(
+                        title=f"ASUS Wi-Fi Diagnostics ({host})",
+                        data={**data, CONF_HOST_KEYS: fingerprints},
+                    )
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_HOST, default=(user_input or {}).get(CONF_HOST, "")): str,
-                vol.Required(CONF_USERNAME, default=(user_input or {}).get(CONF_USERNAME, "")): str,
-                vol.Required(CONF_PASSWORD): str,
+                vol.Optional(
+                    CONF_USERNAME, default=(user_input or {}).get(CONF_USERNAME, "")
+                ): str,
+                vol.Optional(CONF_PASSWORD, default=""): str,
                 vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
                     vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=300)
                 ),
@@ -80,4 +105,3 @@ class AsusWifiDiagnosticsConfigFlow(ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-
