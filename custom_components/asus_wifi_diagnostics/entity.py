@@ -24,7 +24,10 @@ class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator
         # preserves its room, while our own identifier keeps this integration
         # standalone when AsusRouter isn't installed.
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, node.mac), ("asusrouter", node.mac)},
+            identifiers={
+                (DOMAIN, node.mac.lower()),
+                ("asusrouter", node.mac.lower()),
+            },
             manufacturer=MANUFACTURER,
             model=node.model,
             name=node.display_name,
@@ -35,4 +38,3 @@ class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator
     def available(self) -> bool:
         """Return whether this node was present in the latest snapshot."""
         return super().available and self.coordinator.snapshot_for(self.node.mac) is not None
-

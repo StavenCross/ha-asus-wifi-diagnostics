@@ -31,6 +31,18 @@ def radio_interface_for(model: str) -> str | None:
     return None
 
 
+def station_interface_for(
+    model: str, is_controller: bool, radio_interface: str
+) -> str:
+    """Return the known-safe 2.4 GHz BSS interface for a node model."""
+    if is_controller:
+        return radio_interface
+    normalized = normalize_model(model)
+    if "GT6" in normalized or "GT10" in normalized or "AX95Q" in normalized:
+        return "wl2.1"
+    return "wl0.1"
+
+
 def parse_mesh_nodes(raw: str) -> list[MeshNode]:
     """Parse ASUS cfg_device_list output."""
     nodes: list[MeshNode] = []
@@ -48,7 +60,9 @@ def parse_mesh_nodes(raw: str) -> list[MeshNode]:
                 mac=match.group("mac").upper(),
                 is_controller=is_controller,
                 radio_interface=radio_interface,
-                station_interface=radio_interface if is_controller else "wl0.1",
+                station_interface=station_interface_for(
+                    model, is_controller, radio_interface
+                ),
             )
         )
     return nodes
@@ -62,8 +76,10 @@ def parse_channel_stats(raw: str) -> ChannelStats:
     values = lines[header_index + 1].split()
     row = dict(zip(headers, values, strict=False))
     idle = int(row["idle"])
+    chanspec = int(row["chanspec"], 0)
+    channel = chanspec & 0xFF if chanspec > 255 else chanspec
     return ChannelStats(
-        channel=int(row["chanspec"], 0),
+        channel=channel,
         tx=int(row["tx"]),
         in_bss=int(row["inbss"]),
         obss=int(row["obss"]),
@@ -103,8 +119,15 @@ def _first_int(raw: str, patterns: tuple[str, ...]) -> int | None:
 
 
 def _first_rate(raw: str, label: str) -> float | None:
-    match = re.search(rf"^\s*{re.escape(label)}\s*:?\s*([0-9.]+)", raw, re.I | re.M)
-    return float(match.group(1)) if match else None
+    match = re.search(
+        rf"^\s*{re.escape(label)}\s*:?\s*([0-9.]+)\s*(k?bps|mbps)?",
+        raw,
+        re.I | re.M,
+    )
+    if not match:
+        return None
+    rate = float(match.group(1))
+    return rate / 1000 if (match.group(2) or "").lower() == "kbps" else rate
 
 
 def parse_station_stats(

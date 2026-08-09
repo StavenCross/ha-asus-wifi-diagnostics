@@ -23,6 +23,11 @@ def test_parse_mesh_nodes_uses_safe_model_interfaces() -> None:
     assert nodes[1].station_interface == "wl0.1"
 
 
+def test_parse_gt6_satellite_uses_third_radio_bss() -> None:
+    node = parse_mesh_nodes("<GT6>192.168.50.184>10:7C:61:1D:81:90>0")[0]
+    assert node.station_interface == "wl2.1"
+
+
 def test_parse_chanim_v4() -> None:
     raw = """version: 4
 chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise idle busy timestamp
@@ -43,6 +48,14 @@ chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise 
     assert parse_channel_stats(raw).busy == 52
 
 
+def test_parse_encoded_24ghz_chanspec() -> None:
+    raw = """version: 3
+chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise idle timestamp
+0x100b 5 2 30 4 7 0 52 0 0 100 2 -91 48 12345
+"""
+    assert parse_channel_stats(raw).channel == 11
+
+
 def test_parse_clients_and_leases() -> None:
     assert parse_assoclist("assoclist AA:BB:CC:DD:EE:FF\nassoclist 11:22:33:44:55:66") == [
         "AA:BB:CC:DD:EE:FF",
@@ -61,7 +74,7 @@ def test_parse_station_stats() -> None:
         tx failures: 3
         smoothed rssi: -71
         noise: -92
-        rate of last tx pkt: 24.0 Mbps
+        rate of last tx pkt: 24000 kbps
         rate of last rx pkt: 18.0 Mbps
     """
     stats = parse_station_stats(

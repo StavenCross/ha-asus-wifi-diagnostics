@@ -17,6 +17,8 @@ from .parser import (
     parse_leases,
     parse_mesh_nodes,
     parse_station_stats,
+    radio_interface_for,
+    station_interface_for,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,7 +102,22 @@ class AsusWifiDiagnosticsApi:
         nodes = parse_mesh_nodes(raw)
         if not nodes:
             raise UnsupportedRouterError("No supported AiMesh nodes found")
-        return nodes
+
+        async def identify(node: MeshNode) -> MeshNode:
+            try:
+                product = (await self._run(node.host, "nvram get productid")).strip()
+            except AsusWifiDiagnosticsError:
+                return node
+            radio_interface = radio_interface_for(product) or node.radio_interface
+            return replace(
+                node,
+                radio_interface=radio_interface,
+                station_interface=station_interface_for(
+                    product, node.is_controller, radio_interface
+                ),
+            )
+
+        return list(await asyncio.gather(*(identify(node) for node in nodes)))
 
     async def _collect_node(
         self, node: MeshNode, leases: dict[str, tuple[str, str | None]]
