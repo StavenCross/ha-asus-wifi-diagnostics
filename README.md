@@ -80,7 +80,10 @@ inventory every 30 seconds.
 
 Each client record includes `ha_mapped`, the match method and confidence, and,
 when matched, the Home Assistant device ID, name, area, integrations, and device
-page URL. The integration never assigns ownership from hostname alone.
+page URL. An unmatched named client may also include up to three ranked
+`ha_suggestions` with explicit evidence. Suggestions compare device name, model,
+manufacturer, mesh-node area, and integration-root relationships, but they never
+become ownership until confirmed with a manual MAC mapping.
 
 Some integrations do not expose a device MAC or IP. To add a portable manual
 association, open **Settings > Devices & services > ASUS Wi-Fi Diagnostics >

@@ -83,6 +83,7 @@ def test_unmapped_client_is_explicit() -> None:
         "ha_mapped": False,
         "ha_match_method": "unmapped",
         "ha_match_confidence": "none",
+        "ha_suggestion_count": 0,
     }
 
 
@@ -94,3 +95,99 @@ def test_network_discovery_duplicate_does_not_hide_real_owner() -> None:
     )
     result = _unique_records({"AA:BB:CC:DD:EE:FF": [CAMERA, network_copy]})
     assert result["AA:BB:CC:DD:EE:FF"] == CAMERA
+
+
+def test_unique_model_suggestion_is_review_only() -> None:
+    garage_switch = OwnershipRecord(
+        device_id="garage-switch",
+        name="garage switch",
+        area_id="garage",
+        area_name="Garage",
+        integrations=("smartthings",),
+        manufacturer="TP-LINK",
+        model="ES20M(US)",
+    )
+    index = OwnershipIndex({}, {}, {garage_switch.device_id: garage_switch})
+    result = index.resolve(
+        "28:87:BA:87:8E:30", "192.168.50.204", name="ES20M"
+    )
+    assert result["ha_mapped"] is False
+    assert result["ha_suggestion_count"] == 1
+    assert result["ha_suggestions"][0]["ha_device_id"] == "garage-switch"
+    assert result["ha_suggestions"][0]["score"] == 85
+    assert result["ha_suggestions"][0]["evidence"] == [
+        "exact model in network name"
+    ]
+
+
+def test_ambiguous_model_returns_ranked_candidates_without_mapping() -> None:
+    attic = OwnershipRecord(
+        device_id="attic",
+        name="attic lights",
+        area_id="attic",
+        integrations=("smartthings",),
+        manufacturer="TP-LINK",
+        model="KP405(US)",
+    )
+    pool = OwnershipRecord(
+        device_id="pool",
+        name="Pool Filter",
+        integrations=("smartthings",),
+        manufacturer="TP-LINK",
+        model="KP405(US)",
+    )
+    index = OwnershipIndex({}, {}, {attic.device_id: attic, pool.device_id: pool})
+    result = index.resolve("5C:E9:31:7B:7A:73", None, name="KP405")
+    assert result["ha_mapped"] is False
+    assert result["ha_suggestion_count"] == 2
+    assert {item["ha_device_id"] for item in result["ha_suggestions"]} == {
+        "attic",
+        "pool",
+    }
+
+
+def test_node_area_ranks_but_does_not_confirm_ambiguous_thermostat() -> None:
+    living = OwnershipRecord(
+        device_id="living",
+        name="Living Room Thermostat",
+        area_id="living_room",
+        integrations=("nest",),
+        manufacturer="Google Nest",
+        model="Thermostat",
+    )
+    loft = OwnershipRecord(
+        device_id="loft",
+        name="Loft Thermostat",
+        area_id="loft",
+        integrations=("nest",),
+        manufacturer="Google Nest",
+        model="Thermostat",
+    )
+    index = OwnershipIndex({}, {}, {living.device_id: living, loft.device_id: loft})
+    suggestions = index.suggest("Nest-Thermostat-F5CC", "living_room")
+    assert [item["ha_device_id"] for item in suggestions] == ["living", "loft"]
+    assert suggestions[0]["score"] == 95
+    assert suggestions[1]["score"] == 85
+
+
+def test_unique_base_station_root_is_suggested() -> None:
+    root = OwnershipRecord(
+        device_id="system",
+        name="Home security",
+        integrations=("simplisafe",),
+        manufacturer="SimpliSafe",
+        model="3",
+    )
+    keypad = OwnershipRecord(
+        device_id="keypad",
+        name="Keypad",
+        integrations=("simplisafe",),
+        manufacturer="SimpliSafe",
+        model="Keypad",
+        via_device_id="system",
+    )
+    index = OwnershipIndex({}, {}, {root.device_id: root, keypad.device_id: keypad})
+    suggestions = index.suggest("SimpliSafe_Basestation")
+    assert len(suggestions) == 1
+    assert suggestions[0]["ha_device_id"] == "system"
+    assert suggestions[0]["score"] == 95

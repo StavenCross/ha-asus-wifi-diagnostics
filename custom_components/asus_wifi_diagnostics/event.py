@@ -61,11 +61,17 @@ class AsusWifiIncidentEvent(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], E
     def _handle_coordinator_update(self) -> None:
         """Translate coordinator snapshots into sparse recorder events."""
         snapshot = self.coordinator.snapshot_for(self.node.mac)
+        node_area_id = self.coordinator.node_area_id(self.node.mac)
         for incident in self._tracker.update(snapshot, dt_util.utcnow()):
             top_clients = [
                 {
                     **client,
-                    **self.coordinator.ownership_for(client.get("mac"), client.get("ip")),
+                    **self.coordinator.ownership_for(
+                        client.get("mac"),
+                        client.get("ip"),
+                        client.get("name"),
+                        node_area_id,
+                    ),
                 }
                 for client in incident.data.get("top_clients", [])
             ]

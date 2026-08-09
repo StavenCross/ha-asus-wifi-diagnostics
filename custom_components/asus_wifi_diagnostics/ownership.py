@@ -56,6 +56,9 @@ class OwnershipRecord:
     area_id: str | None = None
     area_name: str | None = None
     integrations: tuple[str, ...] = ()
+    manufacturer: str | None = None
+    model: str | None = None
+    via_device_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +74,8 @@ class OwnershipIndex:
         mac: str | None,
         ip: str | None,
         manual_overrides: dict[str, str] | None = None,
+        name: str | None = None,
+        node_area_id: str | None = None,
     ) -> dict[str, Any]:
         """Return bounded ownership attributes for a network client."""
         canonical_mac = normalize_mac(mac)
@@ -98,11 +103,16 @@ class OwnershipIndex:
                 confidence = "probable"
 
         if record is None:
-            return {
+            suggestions = self.suggest(name, node_area_id)
+            result = {
                 "ha_mapped": False,
                 "ha_match_method": method,
                 "ha_match_confidence": confidence,
+                "ha_suggestion_count": len(suggestions),
             }
+            if suggestions:
+                result["ha_suggestions"] = suggestions
+            return result
         return {
             "ha_mapped": True,
             "ha_device_id": record.device_id,
@@ -114,6 +124,114 @@ class OwnershipIndex:
             "ha_match_confidence": confidence,
             "ha_device_url": f"/config/devices/device/{record.device_id}",
         }
+
+    def suggest(
+        self, name: str | None, node_area_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Rank review-only HA device candidates from a router hostname."""
+        client = _compact(name)
+        if len(client) < 4 or client in {"connect", "unknown", "wlan0"}:
+            return []
+
+        owned = [
+            record
+            for record in self.by_device_id.values()
+            if set(record.integrations) - {"asusrouter", "asus_wifi_diagnostics"}
+        ]
+        scored: list[tuple[int, OwnershipRecord, list[str]]] = []
+        for record in owned:
+            score = 0
+            evidence: list[str] = []
+            device_name = _compact(record.name)
+            model = _compact(record.model)
+            manufacturer = _compact(record.manufacturer)
+
+            if client == device_name:
+                score = 100
+                evidence.append("exact device name")
+            elif len(device_name) >= 5 and (
+                device_name in client or client in device_name
+            ):
+                score = 90
+                evidence.append("device name appears in network name")
+
+            if len(model) >= 4 and (model in client or client in model):
+                score = max(score, 85)
+                evidence.append("exact model in network name")
+
+            manufacturer_tokens = _terms(record.manufacturer)
+            client_tokens = _terms(name)
+            if manufacturer and (
+                manufacturer in client or manufacturer_tokens & client_tokens
+            ):
+                score = max(score, 55)
+                evidence.append("manufacturer in network name")
+
+            if score >= 55 and node_area_id and record.area_id == node_area_id:
+                score += 10
+                evidence.append("same area as current mesh node")
+            if score >= 65:
+                scored.append((min(score, 100), record, evidence))
+
+        # A base-station/gateway hostname can identify a unique integration root,
+        # but only when sibling devices explicitly point to that root.
+        if any(term in client for term in ("basestation", "gateway", "bridge")):
+            manufacturer_matches = [
+                record
+                for record in owned
+                if _compact(record.manufacturer)
+                and (
+                    _compact(record.manufacturer) in client
+                    or _terms(record.manufacturer) & _terms(name)
+                )
+            ]
+            roots = [
+                record
+                for record in manufacturer_matches
+                if record.via_device_id is None
+                and any(
+                    child.via_device_id == record.device_id
+                    for child in manufacturer_matches
+                )
+            ]
+            if len(roots) == 1:
+                root = roots[0]
+                scored = [item for item in scored if item[1].device_id != root.device_id]
+                scored.append(
+                    (95, root, ["unique integration root for base station hostname"])
+                )
+
+        scored.sort(key=lambda item: (-item[0], item[1].name.casefold()))
+        return [
+            {
+                "ha_device_id": record.device_id,
+                "ha_device_name": record.name,
+                "ha_area_id": record.area_id,
+                "ha_area_name": record.area_name,
+                "ha_integrations": list(record.integrations),
+                "score": score,
+                "evidence": evidence,
+                "ha_device_url": f"/config/devices/device/{record.device_id}",
+            }
+            for score, record, evidence in scored[:3]
+        ]
+
+
+def _compact(value: str | None) -> str:
+    """Return lowercase alphanumeric identity text."""
+    return re.sub(r"[^a-z0-9]", "", value.casefold()) if value else ""
+
+
+def _terms(value: str | None) -> set[str]:
+    """Return useful lowercase identity terms, including camel-case words."""
+    if not value:
+        return set()
+    split = re.sub(r"([a-z])([A-Z])", r"\1 \2", value)
+    return {
+        term.casefold()
+        for term in re.findall(r"[A-Za-z]+", split)
+        if len(term) >= 3
+    }
 
 
 def _unique_records(
@@ -162,6 +280,9 @@ def build_ownership_index(hass) -> OwnershipIndex:
             area_id=area_id,
             area_name=area.name if area else None,
             integrations=tuple(sorted({entity.platform for entity in entities})),
+            manufacturer=device.manufacturer,
+            model=device.model,
+            via_device_id=device.via_device_id,
         )
         by_device_id[device.id] = record
 

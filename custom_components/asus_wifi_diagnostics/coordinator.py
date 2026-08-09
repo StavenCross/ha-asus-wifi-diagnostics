@@ -72,9 +72,30 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
             raise UpdateFailed(str(err)) from err
 
     @callback
-    def ownership_for(self, mac: str | None, ip: str | None) -> dict:
+    def ownership_for(
+        self,
+        mac: str | None,
+        ip: str | None,
+        name: str | None = None,
+        node_area_id: str | None = None,
+    ) -> dict:
         """Return Home Assistant ownership attributes for a router client."""
-        return self.ownership.resolve(mac, ip, self.manual_overrides)
+        return self.ownership.resolve(
+            mac,
+            ip,
+            self.manual_overrides,
+            name=name,
+            node_area_id=node_area_id,
+        )
+
+    @callback
+    def node_area_id(self, mac: str) -> str | None:
+        """Return the HA area assigned to an AiMesh node."""
+        from homeassistant.helpers import device_registry as dr
+
+        registry = dr.async_get(self.hass)
+        device = registry.async_get_device(identifiers={(DOMAIN, mac.lower())})
+        return device.area_id if device else None
 
     @callback
     def snapshot_for(self, mac: str):
