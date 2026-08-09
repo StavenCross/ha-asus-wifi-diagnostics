@@ -1,6 +1,6 @@
 """Tests for NetworkManager collector parsing."""
 
-from collector.couchcast_wifi_probe import split_nmcli_terse
+from collector.couchcast_wifi_probe import normalized_channel, split_nmcli_terse
 
 
 def test_split_nmcli_terse_preserves_bssid_colons() -> None:
@@ -14,3 +14,9 @@ def test_split_nmcli_terse_preserves_bssid_colons() -> None:
         "78",
         "WPA1 WPA2",
     ]
+
+
+def test_normalized_channel_fills_driver_channel_zero() -> None:
+    assert normalized_channel(0, 5865) == 173
+    assert normalized_channel(0, 2462) == 11
+    assert normalized_channel(36, 5180) == 36

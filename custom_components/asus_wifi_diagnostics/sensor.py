@@ -17,6 +17,7 @@ from . import AsusWifiDiagnosticsConfigEntry
 from .coordinator import AsusWifiDiagnosticsCoordinator
 from .entity import AsusWifiDiagnosticsEntity
 from .models import NodeSnapshot
+from .probe import bssid_radio_fingerprint
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -250,8 +251,10 @@ class CouchCastWifiProbeSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator]
         if report is None:
             return [], []
         own_bssids: set[str] = set()
+        own_fingerprints: set[str] = set()
         own_ssids: set[str] = set()
         for snapshot in self.coordinator.data.nodes.values():
+            own_fingerprints.add(bssid_radio_fingerprint(snapshot.node.mac))
             if snapshot.bssid:
                 own_bssids.add(snapshot.bssid.upper())
             if snapshot.ssid:
@@ -262,7 +265,12 @@ class CouchCastWifiProbeSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator]
             )
         own, external = [], []
         for network in report.networks:
-            target = own if network.bssid in own_bssids or network.ssid in own_ssids else external
+            is_own = (
+                network.bssid in own_bssids
+                or network.ssid in own_ssids
+                or bssid_radio_fingerprint(network.bssid) in own_fingerprints
+            )
+            target = own if is_own else external
             target.append(network)
         return own, external
 

@@ -34,6 +34,19 @@ def split_nmcli_terse(line: str) -> list[str]:
     return values
 
 
+def normalized_channel(channel: int, frequency_mhz: int) -> int:
+    """Fill driver-reported channel zero from a standard center frequency."""
+    if channel:
+        return channel
+    if 2412 <= frequency_mhz <= 2472:
+        return (frequency_mhz - 2407) // 5
+    if frequency_mhz == 2484:
+        return 14
+    if 5000 <= frequency_mhz < 5900:
+        return (frequency_mhz - 5000) // 5
+    return channel
+
+
 def collect(interface: str, probe_name: str) -> dict[str, object]:
     """Run one NetworkManager survey and return a webhook payload."""
     command = [
@@ -59,11 +72,12 @@ def collect(interface: str, probe_name: str) -> dict[str, object]:
             continue
         in_use, ssid, bssid, channel, frequency, signal, security = values
         try:
+            frequency_mhz = int(frequency.split()[0])
             normalized = {
                 "ssid": "" if ssid == "--" else ssid,
                 "bssid": bssid.upper(),
-                "channel": int(channel),
-                "frequency_mhz": int(frequency.split()[0]),
+                "channel": normalized_channel(int(channel), frequency_mhz),
+                "frequency_mhz": frequency_mhz,
                 "signal_percent": int(signal),
                 "security": "" if security == "--" else security,
                 "in_use": in_use == "*",

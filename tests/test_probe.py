@@ -4,6 +4,7 @@ import pytest
 
 from custom_components.asus_wifi_diagnostics.probe import (
     InvalidProbePayload,
+    bssid_radio_fingerprint,
     parse_probe_payload,
 )
 
@@ -62,3 +63,9 @@ def test_probe_payload_rejects_invalid_bssid() -> None:
             },
             "now",
         )
+
+
+def test_asus_virtual_bssid_fingerprint_ignores_first_and_last_octets() -> None:
+    assert bssid_radio_fingerprint("10:7C:61:1D:81:90") == bssid_radio_fingerprint(
+        "72:7C:61:1D:81:9E"
+    )

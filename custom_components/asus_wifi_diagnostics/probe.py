@@ -18,6 +18,12 @@ class InvalidProbePayload(ValueError):
     """Raised when a Wi-Fi probe sends malformed data."""
 
 
+def bssid_radio_fingerprint(bssid: str) -> str:
+    """Return the stable middle octets shared by ASUS virtual BSSIDs."""
+    parts = bssid.upper().split(":")
+    return ":".join(parts[1:5]) if len(parts) == 6 else ""
+
+
 def _bounded_string(value: Any, field: str, limit: int) -> str:
     if not isinstance(value, str):
         raise InvalidProbePayload(f"{field} must be a string")
