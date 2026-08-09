@@ -40,6 +40,17 @@ class ChannelStats:
 
 
 @dataclass(frozen=True, slots=True)
+class NearbyBss:
+    """A BSS found in the router radio's cached scan results."""
+
+    ssid: str
+    bssid: str
+    channel: int | None = None
+    rssi: int | None = None
+    is_own_mesh: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class StationStats:
     """A connected station snapshot."""
 
@@ -67,6 +78,9 @@ class NodeSnapshot:
 
     node: MeshNode
     channel: ChannelStats
+    bssid: str | None = None
+    ssid: str | None = None
+    nearby_bss: tuple[NearbyBss, ...] = field(default_factory=tuple)
     stations: tuple[StationStats, ...] = field(default_factory=tuple)
 
     @property

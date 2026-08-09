@@ -6,7 +6,7 @@ import ipaddress
 import re
 
 from .const import RADIO_INTERFACES
-from .models import ChannelStats, MeshNode, StationStats
+from .models import ChannelStats, MeshNode, NearbyBss, StationStats
 
 _MAC_RE = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
 _NODE_RE = re.compile(
@@ -31,9 +31,7 @@ def radio_interface_for(model: str) -> str | None:
     return None
 
 
-def station_interface_for(
-    model: str, is_controller: bool, radio_interface: str
-) -> str:
+def station_interface_for(model: str, is_controller: bool, radio_interface: str) -> str:
     """Return the known-safe 2.4 GHz BSS interface for a node model."""
     if is_controller:
         return radio_interface
@@ -60,9 +58,7 @@ def parse_mesh_nodes(raw: str) -> list[MeshNode]:
                 mac=match.group("mac").upper(),
                 is_controller=is_controller,
                 radio_interface=radio_interface,
-                station_interface=station_interface_for(
-                    model, is_controller, radio_interface
-                ),
+                station_interface=station_interface_for(model, is_controller, radio_interface),
             )
         )
     return nodes
@@ -96,6 +92,53 @@ def parse_channel_stats(raw: str) -> ChannelStats:
 def parse_assoclist(raw: str) -> list[str]:
     """Parse associated station MAC addresses."""
     return list(dict.fromkeys(mac.upper() for mac in _MAC_RE.findall(raw)))
+
+
+def parse_bssid(raw: str) -> str | None:
+    """Return the first BSSID in wl output."""
+    match = _MAC_RE.search(raw)
+    return match.group(0).upper() if match else None
+
+
+def parse_ssid(raw: str) -> str | None:
+    """Return the SSID from wl output."""
+    quoted = re.search(r'"(?P<ssid>.*)"', raw)
+    if quoted:
+        return quoted.group("ssid")
+    _, separator, value = raw.partition(":")
+    candidate = value.strip() if separator else raw.strip()
+    return candidate or None
+
+
+def parse_scan_results(raw: str) -> list[NearbyBss]:
+    """Parse bounded Broadcom wl scanresults output."""
+    networks: list[NearbyBss] = []
+    blocks = re.split(r"(?=^\s*SSID:\s*)", raw, flags=re.MULTILINE)
+    for block in blocks:
+        ssid_match = re.search(r'^\s*SSID:\s*"(?P<ssid>.*)"\s*$', block, re.MULTILINE)
+        bssid_match = re.search(
+            rf"^\s*BSSID:\s*(?P<bssid>{_MAC_RE.pattern})\s*$", block, re.MULTILINE
+        )
+        if not ssid_match or not bssid_match:
+            continue
+        channel_match = re.search(r"\bChannel:\s*(?P<channel>\d+)", block, re.I)
+        if not channel_match:
+            channel_match = re.search(r"\bchannel\s+(?P<channel>\d+)\b", block, re.I)
+        rssi_match = re.search(r"\bRSSI:\s*(?P<rssi>-?\d+)", block, re.I)
+        networks.append(
+            NearbyBss(
+                ssid=ssid_match.group("ssid"),
+                bssid=bssid_match.group("bssid").upper(),
+                channel=(int(channel_match.group("channel")) if channel_match else None),
+                rssi=int(rssi_match.group("rssi")) if rssi_match else None,
+            )
+        )
+    deduplicated = {network.bssid: network for network in networks}
+    return sorted(
+        deduplicated.values(),
+        key=lambda network: network.rssi if network.rssi is not None else -999,
+        reverse=True,
+    )[:128]
 
 
 def parse_leases(raw: str) -> dict[str, tuple[str, str | None]]:

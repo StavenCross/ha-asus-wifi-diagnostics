@@ -13,9 +13,12 @@ import asyncssh
 from .models import MeshNode, NetworkSnapshot, NodeSnapshot
 from .parser import (
     parse_assoclist,
+    parse_bssid,
     parse_channel_stats,
     parse_leases,
     parse_mesh_nodes,
+    parse_scan_results,
+    parse_ssid,
     parse_station_stats,
     radio_interface_for,
     station_interface_for,
@@ -125,11 +128,19 @@ class AsusWifiDiagnosticsApi:
         radio = shlex.quote(node.radio_interface)
         station = shlex.quote(node.station_interface)
         command = (
-            f"wl -i {radio} chanim_stats; printf '\\n__ASSOC__\\n'; "
+            f"wl -i {radio} chanim_stats; printf '\\n__BSSID__\\n'; "
+            f"wl -i {station} cur_etheraddr 2>/dev/null || true; "
+            f"printf '\\n__SSID__\\n'; wl -i {station} ssid 2>/dev/null || true; "
+            f"printf '\\n__SCAN__\\n'; "
+            f"wl -i {radio} scanresults 2>/dev/null | head -n 1024; "
+            f"printf '\\n__ASSOC__\\n'; "
             f"wl -i {station} assoclist"
         )
         output = await self._run(node.host, command)
-        channel_raw, assoc_raw = output.split("__ASSOC__", 1)
+        channel_raw, remainder = output.split("__BSSID__", 1)
+        bssid_raw, remainder = remainder.split("__SSID__", 1)
+        ssid_raw, remainder = remainder.split("__SCAN__", 1)
+        scan_raw, assoc_raw = remainder.split("__ASSOC__", 1)
         station_macs = parse_assoclist(assoc_raw)[:128]
 
         stations = []
@@ -138,7 +149,7 @@ class AsusWifiDiagnosticsApi:
             station_output = await self._run(
                 node.host,
                 f"for mac in {macs}; do printf '\\n__STA__ %s\\n' \"$mac\"; "
-                f"wl -i {station} sta_info \"$mac\"; done",
+                f'wl -i {station} sta_info "$mac"; done',
             )
             parts = station_output.split("__STA__ ")[1:]
             for part in parts:
@@ -149,6 +160,9 @@ class AsusWifiDiagnosticsApi:
         return NodeSnapshot(
             node=node,
             channel=parse_channel_stats(channel_raw),
+            bssid=parse_bssid(bssid_raw),
+            ssid=parse_ssid(ssid_raw),
+            nearby_bss=tuple(parse_scan_results(scan_raw)),
             stations=tuple(stations),
         )
 
@@ -162,6 +176,11 @@ class AsusWifiDiagnosticsApi:
             *(self._collect_node(node, leases) for node in nodes),
             return_exceptions=True,
         )
+        own_bssids = {
+            result.bssid
+            for result in results
+            if isinstance(result, NodeSnapshot) and result.bssid is not None
+        }
         snapshots: dict[str, NodeSnapshot] = {}
         for node, result in zip(nodes, results, strict=True):
             if isinstance(result, Exception):
@@ -198,7 +217,15 @@ class AsusWifiDiagnosticsApi:
                         tx_failures=failure_delta,
                     )
                 )
-            snapshots[node.mac] = replace(result, stations=tuple(stations))
+            nearby_bss = tuple(
+                replace(network, is_own_mesh=network.bssid in own_bssids)
+                for network in result.nearby_bss
+            )
+            snapshots[node.mac] = replace(
+                result,
+                nearby_bss=nearby_bss,
+                stations=tuple(stations),
+            )
         if not snapshots:
             raise CannotConnectError("No AiMesh node returned diagnostics")
         return NetworkSnapshot(nodes=snapshots)

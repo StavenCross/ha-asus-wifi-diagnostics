@@ -27,7 +27,7 @@
   "entity": {
     "sensor": {
       "utilization": {"name": "2.4 GHz utilization"},
-      "overlapping_wifi": {"name": "Overlapping Wi-Fi utilization"},
+      "overlapping_wifi": {"name": "Other Wi-Fi airtime (OBSS)"},
       "noise_floor": {"name": "Noise floor"},
       "connected_clients": {"name": "2.4 GHz connected clients"},
       "diagnosis": {"name": "2.4 GHz diagnosis"},

@@ -2,9 +2,12 @@
 
 from custom_components.asus_wifi_diagnostics.parser import (
     parse_assoclist,
+    parse_bssid,
     parse_channel_stats,
     parse_leases,
     parse_mesh_nodes,
+    parse_scan_results,
+    parse_ssid,
     parse_station_stats,
 )
 
@@ -61,10 +64,38 @@ def test_parse_clients_and_leases() -> None:
         "AA:BB:CC:DD:EE:FF",
         "11:22:33:44:55:66",
     ]
-    leases = parse_leases(
-        "1770000000 aa:bb:cc:dd:ee:ff 192.168.50.20 kitchen-sensor 01:aa\n"
-    )
+    leases = parse_leases("1770000000 aa:bb:cc:dd:ee:ff 192.168.50.20 kitchen-sensor 01:aa\n")
     assert leases["AA:BB:CC:DD:EE:FF"] == ("192.168.50.20", "kitchen-sensor")
+
+
+def test_parse_bssid_and_ssid() -> None:
+    assert parse_bssid("BSSID: aa:bb:cc:dd:ee:ff") == "AA:BB:CC:DD:EE:FF"
+    assert parse_bssid("not associated") is None
+    assert parse_ssid('Current SSID: "TheOneAndOnly"') == "TheOneAndOnly"
+
+
+def test_parse_scan_results_is_signal_sorted_and_deduplicated() -> None:
+    raw = """SSID: "Neighbor"
+Mode: Managed RSSI: -71 dBm SNR: 20 dB noise: -91 dBm Channel: 1
+BSSID: 11:22:33:44:55:66
+Capability: ESS
+SSID: "TheOneAndOnly"
+Mode: Managed RSSI: -45 dBm SNR: 46 dB noise: -91 dBm Channel: 6
+BSSID: AA:BB:CC:DD:EE:FF
+Capability: ESS
+SSID: "Neighbor"
+Mode: Managed RSSI: -70 dBm SNR: 21 dB noise: -91 dBm Channel: 1
+BSSID: 11:22:33:44:55:66
+Capability: ESS
+"""
+    networks = parse_scan_results(raw)
+    assert [network.bssid for network in networks] == [
+        "AA:BB:CC:DD:EE:FF",
+        "11:22:33:44:55:66",
+    ]
+    assert networks[0].ssid == "TheOneAndOnly"
+    assert networks[0].channel == 6
+    assert networks[1].rssi == -70
 
 
 def test_parse_station_stats() -> None:
@@ -77,9 +108,7 @@ def test_parse_station_stats() -> None:
         rate of last tx pkt: 24000 kbps
         rate of last rx pkt: 18.0 Mbps
     """
-    stats = parse_station_stats(
-        "aa:bb:cc:dd:ee:ff", raw, ("192.168.50.20", "kitchen-sensor")
-    )
+    stats = parse_station_stats("aa:bb:cc:dd:ee:ff", raw, ("192.168.50.20", "kitchen-sensor"))
     assert stats.rssi == -71
     assert stats.tx_retries == 125
     assert stats.tx_rate_mbps == 24.0

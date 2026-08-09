@@ -30,7 +30,7 @@ def _diagnosis(snapshot: NodeSnapshot) -> str:
     if channel.busy < 70:
         return "normal"
     if channel.obss >= 20:
-        return "neighboring_wifi"
+        return "other_wifi_contention"
     if channel.no_category + channel.no_packet >= 15:
         return "non_wifi_interference"
     if worst and ((worst.retry_percent or 0) >= 25 or (worst.rssi or 0) <= -75):
@@ -84,6 +84,31 @@ def _client_map_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
     }
 
 
+def _other_wifi_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
+    """Explain which cached nearby BSSIDs are own mesh versus external."""
+
+    def network_attrs(network) -> dict[str, Any]:
+        return {
+            "ssid": network.ssid or "Hidden network",
+            "bssid": network.bssid,
+            "channel": network.channel,
+            "rssi": network.rssi,
+        }
+
+    own_mesh = [network for network in snapshot.nearby_bss if network.is_own_mesh]
+    external = [network for network in snapshot.nearby_bss if not network.is_own_mesh]
+    return {
+        "local_bssid": snapshot.bssid,
+        "local_ssid": snapshot.ssid,
+        "scan_source": "router_cached_scan_results",
+        "scan_available": bool(snapshot.nearby_bss),
+        "own_mesh_bssids_seen": len(own_mesh),
+        "external_bssids_seen": len(external),
+        "own_mesh_bssids": [network_attrs(network) for network in own_mesh[:32]],
+        "external_bssids": [network_attrs(network) for network in external[:64]],
+    }
+
+
 SENSORS = (
     AsusWifiSensorDescription(
         key="utilization",
@@ -99,6 +124,7 @@ SENSORS = (
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:access-point-network",
         value_fn=lambda snapshot: snapshot.channel.obss,
+        attrs_fn=_other_wifi_attrs,
     ),
     AsusWifiSensorDescription(
         key="noise_floor",

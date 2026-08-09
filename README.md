@@ -10,18 +10,26 @@ radio counters that ASUSWRT does not provide through its normal client API.
 For each AiMesh node:
 
 - 2.4 GHz channel utilization and a critical-congestion binary sensor
-- overlapping Wi-Fi utilization and radio noise floor
+- other Wi-Fi airtime (the Broadcom OBSS counter) and radio noise floor
+- cached nearby BSSID context that separates known AiMesh radios from external
+  Wi-Fi without initiating potentially disruptive active scans
 - connected 2.4 GHz client count
 - an IP-sorted client map in the connected-client sensor attributes for native
   Home Assistant dashboards
-- a conservative diagnosis: normal, neighboring Wi-Fi, non-Wi-Fi
+- a conservative diagnosis: normal, other Wi-Fi contention, non-Wi-Fi
   interference, client pressure, or general congestion
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
   per-poll retry percentage and failure deltas as attributes
 
 The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
-`wl chanim_stats`, `wl assoclist`, `wl sta_info`, and a dnsmasq lease read).
+`wl chanim_stats`, `wl cur_etheraddr`, `wl ssid`, cached `wl scanresults`,
+`wl assoclist`, `wl sta_info`, and a dnsmasq lease read).
 It never changes router configuration.
+
+`scanresults` reads the router's existing scan cache; the integration does not
+trigger an active radio scan. A cache can be empty or stale, so nearby BSSID
+lists are context for the OBSS airtime counter rather than a complete site
+survey.
 
 ## Supported hardware
 
