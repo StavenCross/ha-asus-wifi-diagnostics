@@ -49,8 +49,12 @@ class AsusWifiDiagnosticsConfigFlow(ConfigFlow, domain=DOMAIN):
                 ):
                     if str(asusrouter_entry.data.get(CONF_HOST, "")).lower() != host:
                         continue
-                    username = username or asusrouter_entry.data.get(CONF_USERNAME, "")
-                    password = password or asusrouter_entry.data.get(CONF_PASSWORD, "")
+                    credentials = {
+                        **asusrouter_entry.data,
+                        **asusrouter_entry.options,
+                    }
+                    username = username or credentials.get(CONF_USERNAME, "")
+                    password = password or credentials.get(CONF_PASSWORD, "")
                     break
 
             if not username or not password:
