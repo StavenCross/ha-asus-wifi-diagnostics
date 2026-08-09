@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AsusWifiDiagnosticsConfigEntry
+from .const import BAND_5_GHZ
 from .coordinator import AsusWifiDiagnosticsCoordinator
 from .entity import AsusWifiDiagnosticsEntity
 from .models import NodeSnapshot
@@ -279,6 +280,35 @@ SENSORS = (
     ),
 )
 
+_5_GHZ_NAMES = {
+    "utilization": "5 GHz utilization",
+    "overlapping_wifi": "5 GHz other Wi-Fi airtime (OBSS)",
+    "noise_floor": "5 GHz noise floor",
+    "connected_clients": "5 GHz connected clients",
+    "diagnosis": "5 GHz diagnosis",
+    "worst_client": "5 GHz most suspicious client",
+    "transmit_airtime": "5 GHz transmit airtime",
+    "own_wifi_airtime": "5 GHz own Wi-Fi airtime",
+    "no_category_airtime": "5 GHz uncategorized airtime",
+    "no_packet_airtime": "5 GHz no-packet airtime",
+    "channel_glitches": "5 GHz channel glitches",
+    "bad_plcp": "5 GHz malformed Wi-Fi headers",
+    "worst_client_retry": "5 GHz worst client retry rate",
+    "worst_client_rssi": "5 GHz worst client signal",
+    "worst_client_failures": "5 GHz worst client failures",
+    "router_uptime": "5 GHz router uptime",
+}
+
+
+def descriptions_for(node) -> tuple[AsusWifiSensorDescription, ...]:
+    """Return band-specific descriptions while preserving 2.4 GHz translations."""
+    if node.band != BAND_5_GHZ:
+        return SENSORS
+    return tuple(
+        replace(description, translation_key=None, name=_5_GHZ_NAMES[description.key])
+        for description in SENSORS
+    )
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -290,7 +320,7 @@ async def async_setup_entry(
     async_add_entities(
         AsusWifiSensor(coordinator, node, description)
         for node in coordinator.nodes
-        for description in SENSORS
+        for description in descriptions_for(node)
     )
     async_add_entities([CouchCastWifiProbeSensor(coordinator, entry.entry_id)])
 
@@ -307,19 +337,20 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
     @property
     def native_value(self):
         """Return the current sensor value."""
-        snapshot = self.coordinator.snapshot_for(self.node.mac)
+        snapshot = self.coordinator.snapshot_for(self.node)
         return self.entity_description.value_fn(snapshot) if snapshot else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return bounded supporting details."""
-        snapshot = self.coordinator.snapshot_for(self.node.mac)
+        snapshot = self.coordinator.snapshot_for(self.node)
         if snapshot is None:
             return None
         base = {
             "diagnostic_key": self.entity_description.key,
             "node_name": self.node.display_name,
             "node_mac": self.node.mac,
+            "band": self.node.band_name,
             "channel": snapshot.channel.channel,
             "radio_interface": self.node.radio_interface,
             "node_ip": self.node.host,

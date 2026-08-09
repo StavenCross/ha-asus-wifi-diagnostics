@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .const import BAND_2_4_GHZ, BAND_5_GHZ
+
 
 @dataclass(frozen=True, slots=True)
 class MeshNode:
@@ -15,16 +17,32 @@ class MeshNode:
     is_controller: bool = False
     radio_interface: str = ""
     station_interface: str = ""
+    band: str = BAND_2_4_GHZ
 
     @property
     def display_name(self) -> str:
         """Return a stable fallback display name."""
         return f"{self.model} {self.host}"
 
+    @property
+    def band_name(self) -> str:
+        """Return the user-facing radio band name."""
+        return "5 GHz" if self.band == BAND_5_GHZ else "2.4 GHz"
+
+    @property
+    def band_slug(self) -> str:
+        """Return the stable unique-ID segment for this radio band."""
+        return "5ghz" if self.band == BAND_5_GHZ else "2ghz"
+
+    @property
+    def snapshot_key(self) -> str:
+        """Return a unique snapshot key while preserving legacy 2.4 GHz keys."""
+        return f"{self.mac}_5ghz" if self.band == BAND_5_GHZ else self.mac
+
 
 @dataclass(frozen=True, slots=True)
 class ChannelStats:
-    """A 2.4 GHz chanim snapshot."""
+    """A Wi-Fi radio chanim snapshot."""
 
     channel: int
     tx: int

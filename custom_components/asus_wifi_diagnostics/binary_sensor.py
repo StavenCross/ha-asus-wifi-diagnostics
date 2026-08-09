@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import AsusWifiDiagnosticsConfigEntry
-from .const import CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION
+from .const import BAND_2_4_GHZ, BAND_5_GHZ, CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION
 from .entity import AsusWifiDiagnosticsEntity
 
 DESCRIPTION = BinarySensorEntityDescription(
@@ -39,7 +39,11 @@ async def async_setup_entry(
         AsusWifiCongestionSensor(coordinator, node, threshold)
         for node in coordinator.nodes
     )
-    async_add_entities(AsusWifiReachabilitySensor(coordinator, node) for node in coordinator.nodes)
+    async_add_entities(
+        AsusWifiReachabilitySensor(coordinator, node)
+        for node in coordinator.nodes
+        if node.band == BAND_2_4_GHZ
+    )
 
 
 class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
@@ -50,11 +54,14 @@ class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
     def __init__(self, coordinator, node, threshold: int) -> None:
         self.threshold = threshold
         super().__init__(coordinator, node)
+        if node.band == BAND_5_GHZ:
+            self._attr_translation_key = None
+            self._attr_name = "5 GHz congested"
 
     @property
     def is_on(self) -> bool | None:
         """Return congestion state."""
-        snapshot = self.coordinator.snapshot_for(self.node.mac)
+        snapshot = self.coordinator.snapshot_for(self.node)
         return snapshot.channel.busy >= self.threshold if snapshot else None
 
     @property
@@ -64,6 +71,7 @@ class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
             "diagnostic_key": self.entity_description.key,
             "node_name": self.node.display_name,
             "node_mac": self.node.mac,
+            "band": self.node.band_name,
             "node_ip": self.node.host,
             "threshold": self.threshold,
         }
@@ -82,17 +90,17 @@ class AsusWifiReachabilitySensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return whether the node supplied a current snapshot."""
-        return self.coordinator.snapshot_for(self.node.mac) is not None
+        return self.coordinator.snapshot_for(self.node) is not None
 
     @property
     def extra_state_attributes(self):
         """Return last-success and bounded failure evidence."""
-        last_success = self.coordinator.last_node_success.get(self.node.mac)
+        last_success = self.coordinator.last_node_success.get(self.node.snapshot_key)
         return {
             "diagnostic_key": self.entity_description.key,
             "node_name": self.node.display_name,
             "node_mac": self.node.mac,
             "node_ip": self.node.host,
             "last_successful_poll": last_success.isoformat() if last_success else None,
-            "failure": self.coordinator.failure_for(self.node.mac),
+            "failure": self.coordinator.failure_for(self.node),
         }

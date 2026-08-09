@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 
-from .const import RADIO_INTERFACES
+from .const import BAND_2_4_GHZ, BAND_5_GHZ, RADIO_5_GHZ_INTERFACES, RADIO_INTERFACES
 from .models import ChannelStats, MeshNode, NearbyBss, StationStats
 
 _MAC_RE = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
@@ -19,11 +19,18 @@ def normalize_model(model: str) -> str:
     return model.strip().upper().replace(" ", "_")
 
 
-def radio_interface_for(model: str) -> str | None:
-    """Return the known-safe 2.4 GHz interface for a model."""
+def radio_interface_for(model: str, band: str = BAND_2_4_GHZ) -> str | None:
+    """Return the known-safe client-facing interface for a model and band."""
     normalized = normalize_model(model)
-    if normalized in RADIO_INTERFACES:
-        return RADIO_INTERFACES[normalized]
+    interfaces = RADIO_5_GHZ_INTERFACES if band == BAND_5_GHZ else RADIO_INTERFACES
+    if normalized in interfaces:
+        return interfaces[normalized]
+    if band == BAND_5_GHZ:
+        if "GT6" in normalized or "GT10" in normalized:
+            return "eth4"
+        if "XT8" in normalized or "AX95Q" in normalized:
+            return "eth5"
+        return None
     if "GT6" in normalized or "GT10" in normalized:
         return "eth6"
     if "XT8" in normalized or "AX95Q" in normalized:
@@ -31,11 +38,20 @@ def radio_interface_for(model: str) -> str | None:
     return None
 
 
-def station_interface_for(model: str, is_controller: bool, radio_interface: str) -> str:
-    """Return the known-safe 2.4 GHz BSS interface for a node model."""
+def station_interface_for(
+    model: str,
+    is_controller: bool,
+    radio_interface: str,
+    band: str = BAND_2_4_GHZ,
+) -> str:
+    """Return the known-safe client BSS interface for a node model and band."""
     if is_controller:
         return radio_interface
     normalized = normalize_model(model)
+    if band == BAND_5_GHZ:
+        if "GT6" in normalized or "GT10" in normalized:
+            return "wl0.1"
+        return "wl1.1"
     if "GT6" in normalized or "GT10" in normalized:
         return "wl2.1"
     return "wl0.1"
@@ -62,6 +78,30 @@ def parse_mesh_nodes(raw: str) -> list[MeshNode]:
             )
         )
     return nodes
+
+
+def expand_client_radios(node: MeshNode, model: str | None = None) -> list[MeshNode]:
+    """Return supported 2.4 and client-facing 5 GHz radios for a physical node."""
+    product = model or node.model
+    radios: list[MeshNode] = []
+    for band in (BAND_2_4_GHZ, BAND_5_GHZ):
+        radio_interface = radio_interface_for(product, band)
+        if radio_interface is None:
+            continue
+        radios.append(
+            MeshNode(
+                model=product,
+                host=node.host,
+                mac=node.mac,
+                is_controller=node.is_controller,
+                radio_interface=radio_interface,
+                station_interface=station_interface_for(
+                    product, node.is_controller, radio_interface, band
+                ),
+                band=band,
+            )
+        )
+    return radios
 
 
 def parse_channel_stats(raw: str) -> ChannelStats:

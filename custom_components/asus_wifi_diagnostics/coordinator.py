@@ -63,8 +63,8 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
                     self.nodes = discovered
                 self._last_discovery = now
             snapshot = await self.api.collect(self.nodes)
-            for mac in snapshot.nodes:
-                self.last_node_success[mac] = now
+            for snapshot_key in snapshot.nodes:
+                self.last_node_success[snapshot_key] = now
             if self.data and self.data.probes:
                 snapshot = replace(snapshot, probes=self.data.probes)
             return snapshot
@@ -98,14 +98,16 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         return device.area_id if device else None
 
     @callback
-    def snapshot_for(self, mac: str):
-        """Return a node snapshot from current data."""
-        return self.data.nodes.get(mac) if self.data else None
+    def snapshot_for(self, node: MeshNode | str):
+        """Return a radio snapshot from current data."""
+        key = node.snapshot_key if isinstance(node, MeshNode) else node
+        return self.data.nodes.get(key) if self.data else None
 
     @callback
-    def failure_for(self, mac: str) -> str | None:
+    def failure_for(self, node: MeshNode | str) -> str | None:
         """Return the bounded failure classification from the latest poll."""
-        return self.data.failures.get(mac) if self.data else None
+        key = node.snapshot_key if isinstance(node, MeshNode) else node
+        return self.data.failures.get(key) if self.data else None
 
     @callback
     def async_update_probe(self, report: ProbeSnapshot) -> None:

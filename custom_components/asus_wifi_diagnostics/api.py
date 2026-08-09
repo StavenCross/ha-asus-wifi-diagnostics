@@ -13,6 +13,7 @@ import asyncssh
 
 from .models import MeshNode, NearbyBss, NetworkSnapshot, NodeSnapshot
 from .parser import (
+    expand_client_radios,
     parse_assoclist,
     parse_bssid,
     parse_channel_stats,
@@ -22,8 +23,6 @@ from .parser import (
     parse_ssid,
     parse_station_stats,
     parse_uptime_seconds,
-    radio_interface_for,
-    station_interface_for,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -110,21 +109,15 @@ class AsusWifiDiagnosticsApi:
         if not nodes:
             raise UnsupportedRouterError("No supported AiMesh nodes found")
 
-        async def identify(node: MeshNode) -> MeshNode:
+        async def identify(node: MeshNode) -> list[MeshNode]:
             try:
                 product = (await self._run(node.host, "nvram get productid")).strip()
             except AsusWifiDiagnosticsError:
-                return node
-            radio_interface = radio_interface_for(product) or node.radio_interface
-            return replace(
-                node,
-                radio_interface=radio_interface,
-                station_interface=station_interface_for(
-                    product, node.is_controller, radio_interface
-                ),
-            )
+                product = node.model
+            return expand_client_radios(node, product)
 
-        return list(await asyncio.gather(*(identify(node) for node in nodes)))
+        identified = await asyncio.gather(*(identify(node) for node in nodes))
+        return [radio for node_radios in identified for radio in node_radios]
 
     async def _collect_node(
         self, node: MeshNode, leases: dict[str, tuple[str, str | None]]
@@ -165,7 +158,7 @@ class AsusWifiDiagnosticsApi:
 
         channel = parse_channel_stats(channel_raw)
         nearby_bss = tuple(parse_scan_results(scan_raw))
-        last_scan = self._last_passive_scan.get(node.host, 0)
+        last_scan = self._last_passive_scan.get(node.snapshot_key, 0)
         if monotonic() - last_scan >= _PASSIVE_SCAN_INTERVAL_SECONDS:
             try:
                 fresh_scan_raw = await self._run(
@@ -175,7 +168,7 @@ class AsusWifiDiagnosticsApi:
                     f"wl -i {radio} scanresults 2>/dev/null | head -n 1024",
                 )
                 nearby_bss = tuple(parse_scan_results(fresh_scan_raw))
-                self._last_passive_scan[node.host] = monotonic()
+                self._last_passive_scan[node.snapshot_key] = monotonic()
             except AsusWifiDiagnosticsError as err:
                 _LOGGER.debug("Passive scan unavailable on %s: %s", node.host, err)
 
@@ -199,10 +192,21 @@ class AsusWifiDiagnosticsApi:
         except AsusWifiDiagnosticsError as err:
             _LOGGER.warning("Could not read DHCP leases from %s: %s", self.host, err)
             leases = {}
-        results = await asyncio.gather(
-            *(self._collect_node(node, leases) for node in nodes),
-            return_exceptions=True,
-        )
+        # Keep different AiMesh nodes concurrent, but collect the two radios on
+        # each physical node sequentially to avoid overlapping wl operations.
+        by_host: dict[str, list[tuple[int, MeshNode]]] = {}
+        for index, node in enumerate(nodes):
+            by_host.setdefault(node.host, []).append((index, node))
+        results: list[NodeSnapshot | Exception | None] = [None] * len(nodes)
+
+        async def collect_host(host_nodes: list[tuple[int, MeshNode]]) -> None:
+            for index, node in host_nodes:
+                try:
+                    results[index] = await self._collect_node(node, leases)
+                except Exception as err:
+                    results[index] = err
+
+        await asyncio.gather(*(collect_host(host_nodes) for host_nodes in by_host.values()))
         own_bssids = {
             result.bssid
             for result in results
@@ -233,11 +237,14 @@ class AsusWifiDiagnosticsApi:
                 _LOGGER.warning(
                     "Could not collect Wi-Fi diagnostics from %s: %s", node.host, result
                 )
-                failures[node.mac] = result.__class__.__name__
+                failures[node.snapshot_key] = result.__class__.__name__
+                continue
+            if result is None:
+                failures[node.snapshot_key] = "UnknownCollectionError"
                 continue
             stations = []
             for station in result.stations:
-                key = (node.mac, station.mac)
+                key = (node.snapshot_key, station.mac)
                 previous = self._station_counters.get(key)
                 retry_percent = None
                 failure_delta = None
@@ -278,9 +285,10 @@ class AsusWifiDiagnosticsApi:
                 for other in reachable
                 if other.bssid is not None
                 and other.bssid != result.bssid
+                and other.node.band == result.node.band
                 and other.channel.channel == result.channel.channel
             )
-            snapshots[node.mac] = replace(
+            snapshots[node.snapshot_key] = replace(
                 result,
                 nearby_bss=nearby_bss,
                 same_channel_mesh_bss=same_channel_mesh_bss,

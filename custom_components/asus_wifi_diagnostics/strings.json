@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to the ASUS AiMesh controller",
-        "description": "Uses read-only SSH commands to collect 2.4 GHz radio and client diagnostics. SSH must be enabled on every AiMesh node and use the same credentials. Leave username and password blank to reuse credentials from an existing AsusRouter entry for this host.",
+        "description": "Uses read-only SSH commands to collect 2.4 and client-facing 5 GHz radio diagnostics. Dedicated wireless-backhaul radios are not polled. SSH must be enabled on every AiMesh node and use the same credentials. Leave username and password blank to reuse credentials from an existing AsusRouter entry for this host.",
         "data": {
           "host": "Controller IP address",
           "username": "SSH username",
@@ -17,7 +17,7 @@
       "cannot_connect": "Unable to connect to the router over SSH",
       "invalid_auth": "Invalid SSH username or password",
       "missing_credentials": "Enter SSH credentials or configure AsusRouter for this host first",
-      "unsupported_router": "No supported AiMesh 2.4 GHz interfaces were found",
+      "unsupported_router": "No supported AiMesh radio interfaces were found",
       "unknown": "Unexpected error"
     },
     "abort": {

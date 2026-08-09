@@ -9,7 +9,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import AsusWifiDiagnosticsConfigEntry
-from .const import CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION
+from .const import BAND_5_GHZ, CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION
 from .coordinator import AsusWifiDiagnosticsCoordinator
 from .entity import device_info_for
 from .incident import IncidentTracker
@@ -54,13 +54,16 @@ class AsusWifiIncidentEvent(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], E
         super().__init__(coordinator)
         self.node = node
         self._tracker = IncidentTracker(threshold)
-        self._attr_unique_id = f"{node.mac}_2ghz_incident"
+        self._attr_unique_id = f"{node.mac}_{node.band_slug}_incident"
+        if node.band == BAND_5_GHZ:
+            self._attr_translation_key = None
+            self._attr_name = "5 GHz Wi-Fi incident"
         self._attr_device_info = device_info_for(node)
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Translate coordinator snapshots into sparse recorder events."""
-        snapshot = self.coordinator.snapshot_for(self.node.mac)
+        snapshot = self.coordinator.snapshot_for(self.node)
         node_area_id = self.coordinator.node_area_id(self.node.mac)
         for incident in self._tracker.update(snapshot, dt_util.utcnow()):
             top_clients = [
@@ -79,6 +82,7 @@ class AsusWifiIncidentEvent(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], E
                 "diagnostic_key": "incident",
                 "node_name": self.node.display_name,
                 "node_mac": self.node.mac,
+                "band": self.node.band_name,
                 "node_ip": self.node.host,
                 **incident.data,
                 "top_clients": top_clients,

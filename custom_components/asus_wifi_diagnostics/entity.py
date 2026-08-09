@@ -32,7 +32,7 @@ class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator
     def __init__(self, coordinator: AsusWifiDiagnosticsCoordinator, node: MeshNode) -> None:
         super().__init__(coordinator)
         self.node = node
-        self._attr_unique_id = f"{node.mac}_2ghz_{self.entity_description.key}"
+        self._attr_unique_id = f"{node.mac}_{node.band_slug}_{self.entity_description.key}"
         # AsusRouter identifies AiMesh nodes with (asusrouter, MAC). Including
         # that identifier merges these diagnostics onto the existing device and
         # preserves its room, while our own identifier keeps this integration
@@ -42,4 +42,4 @@ class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator
     @property
     def available(self) -> bool:
         """Return whether this node was present in the latest snapshot."""
-        return super().available and self.coordinator.snapshot_for(self.node.mac) is not None
+        return super().available and self.coordinator.snapshot_for(self.node) is not None

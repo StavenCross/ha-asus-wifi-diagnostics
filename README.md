@@ -1,6 +1,6 @@
 # ASUS Wi-Fi Diagnostics for Home Assistant
 
-A local-polling Home Assistant custom integration for diagnosing 2.4 GHz
+A local-polling Home Assistant custom integration for diagnosing 2.4 and 5 GHz
 congestion on supported ASUSWRT/AiMesh routers. It complements the excellent
 [AsusRouter](https://github.com/Vaskivskyi/ha-asusrouter) integration by exposing
 radio counters that ASUSWRT does not provide through its normal client API.
@@ -9,13 +9,14 @@ radio counters that ASUSWRT does not provide through its normal client API.
 
 For each AiMesh node:
 
-- 2.4 GHz channel utilization and a critical-congestion binary sensor
+- 2.4 GHz and client-facing 5 GHz channel utilization, each with a
+  critical-congestion binary sensor
 - recorder-friendly airtime components: transmit, own-network, other Wi-Fi
   (OBSS), uncategorized, and no-packet airtime
 - radio noise floor, channel glitches, and malformed Wi-Fi header counts
 - nearby BSSID context that separates known AiMesh radios from external Wi-Fi
   using an infrequent passive scan limited to the radio's current channel
-- connected 2.4 GHz client count
+- separate connected-client counts and client maps for 2.4 and 5 GHz
 - an IP-sorted client map in the connected-client sensor attributes for native
   Home Assistant dashboards
 - conservative Home Assistant ownership matching for every client. Exact MAC
@@ -93,7 +94,8 @@ options and are included in normal Home Assistant backups.
 
 ## Supported hardware
 
-The initial release targets the tested 2.4 GHz interface layouts used by:
+The integration targets the tested 2.4 GHz and client-facing 5 GHz interface
+layouts used by:
 
 - ASUS ROG Rapture GT6 / GT10
 - ASUS ZenWiFi XT8 / XT8 V2
@@ -101,6 +103,8 @@ The initial release targets the tested 2.4 GHz interface layouts used by:
 
 Unknown models are skipped rather than probing arbitrary wireless interfaces.
 Please open an issue with the model and safe interface mapping to add hardware.
+The dedicated 5 GHz AiMesh backhaul radio is intentionally excluded so it is
+not mistaken for client traffic and does not add polling load.
 
 ## Installation
 

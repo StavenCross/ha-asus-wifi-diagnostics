@@ -1,6 +1,8 @@
 """Tests for ASUSWRT parsers."""
 
+from custom_components.asus_wifi_diagnostics.const import BAND_5_GHZ
 from custom_components.asus_wifi_diagnostics.parser import (
+    expand_client_radios,
     parse_assoclist,
     parse_bssid,
     parse_channel_stats,
@@ -35,6 +37,24 @@ def test_parse_gt6_satellite_uses_third_radio_bss() -> None:
 def test_parse_ax95q_satellite_uses_primary_radio_bss() -> None:
     node = parse_mesh_nodes("<RT-AX95Q>192.168.50.109>04:42:1A:38:B3:D0>0")[0]
     assert node.station_interface == "wl0.1"
+
+
+def test_expand_gt6_client_radios_excludes_backhaul() -> None:
+    node = parse_mesh_nodes("<GT6>192.168.50.184>10:7C:61:1D:81:90>0")[0]
+    radios = expand_client_radios(node, "GT10")
+    assert [(radio.band, radio.radio_interface, radio.station_interface) for radio in radios] == [
+        ("2_4_ghz", "eth6", "wl2.1"),
+        (BAND_5_GHZ, "eth4", "wl0.1"),
+    ]
+
+
+def test_expand_xt8_client_radios_excludes_backhaul() -> None:
+    node = parse_mesh_nodes("<ZenWiFi_XT8>192.168.50.168>C8:7F:54:A3:C8:80>0")[0]
+    radios = expand_client_radios(node, "XT8_V2")
+    assert [(radio.band, radio.radio_interface, radio.station_interface) for radio in radios] == [
+        ("2_4_ghz", "eth4", "wl0.1"),
+        (BAND_5_GHZ, "eth5", "wl1.1"),
+    ]
 
 
 def test_parse_chanim_v4() -> None:
