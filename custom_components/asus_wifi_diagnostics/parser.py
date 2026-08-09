@@ -110,6 +110,18 @@ def parse_ssid(raw: str) -> str | None:
     return candidate or None
 
 
+def parse_uptime_seconds(raw: str) -> int | None:
+    """Return whole seconds from Linux /proc/uptime output."""
+    first = raw.strip().split(maxsplit=1)
+    if not first:
+        return None
+    try:
+        value = float(first[0])
+    except ValueError:
+        return None
+    return max(0, int(value))
+
+
 def parse_scan_results(raw: str) -> list[NearbyBss]:
     """Parse bounded Broadcom wl scanresults output."""
     networks: list[NearbyBss] = []

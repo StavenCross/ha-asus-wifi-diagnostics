@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -12,6 +13,8 @@ from homeassistant.util import dt as dt_util
 from .api import AsusWifiDiagnosticsApi, AsusWifiDiagnosticsError
 from .const import DISCOVERY_INTERVAL, DOMAIN
 from .models import MeshNode, NetworkSnapshot, ProbeSnapshot
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
@@ -32,6 +35,7 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         self.api = api
         self.nodes: list[MeshNode] = []
         self._last_discovery: datetime | None = None
+        self.last_node_success: dict[str, datetime] = {}
         self.webhook_id = ""
 
     async def _async_update_data(self) -> NetworkSnapshot:
@@ -42,9 +46,20 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
                 or self._last_discovery is None
                 or now - self._last_discovery >= DISCOVERY_INTERVAL
             ):
-                self.nodes = await self.api.discover_nodes()
+                try:
+                    discovered = await self.api.discover_nodes()
+                except AsusWifiDiagnosticsError:
+                    if not self.nodes:
+                        raise
+                    _LOGGER.warning(
+                        "AiMesh rediscovery failed; polling the last known node set"
+                    )
+                else:
+                    self.nodes = discovered
                 self._last_discovery = now
             snapshot = await self.api.collect(self.nodes)
+            for mac in snapshot.nodes:
+                self.last_node_success[mac] = now
             if self.data and self.data.probes:
                 snapshot = replace(snapshot, probes=self.data.probes)
             return snapshot
@@ -55,6 +70,11 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
     def snapshot_for(self, mac: str):
         """Return a node snapshot from current data."""
         return self.data.nodes.get(mac) if self.data else None
+
+    @callback
+    def failure_for(self, mac: str) -> str | None:
+        """Return the bounded failure classification from the latest poll."""
+        return self.data.failures.get(mac) if self.data else None
 
     @callback
     def async_update_probe(self, report: ProbeSnapshot) -> None:

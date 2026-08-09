@@ -108,6 +108,7 @@ class NodeSnapshot:
     nearby_bss: tuple[NearbyBss, ...] = field(default_factory=tuple)
     same_channel_mesh_bss: tuple[NearbyBss, ...] = field(default_factory=tuple)
     stations: tuple[StationStats, ...] = field(default_factory=tuple)
+    router_uptime_seconds: int | None = None
 
     @property
     def worst_station(self) -> StationStats | None:
@@ -129,3 +130,4 @@ class NetworkSnapshot:
 
     nodes: dict[str, NodeSnapshot]
     probes: dict[str, ProbeSnapshot] = field(default_factory=dict)
+    failures: dict[str, str] = field(default_factory=dict)

@@ -10,6 +10,20 @@ from .coordinator import AsusWifiDiagnosticsCoordinator
 from .models import MeshNode
 
 
+def device_info_for(node: MeshNode) -> DeviceInfo:
+    """Return device registry identifiers shared by every node entity."""
+    return DeviceInfo(
+        identifiers={
+            (DOMAIN, node.mac.lower()),
+            ("asusrouter", node.mac.lower()),
+        },
+        manufacturer=MANUFACTURER,
+        model=node.model,
+        name=node.display_name,
+        configuration_url=f"http://{node.host}",
+    )
+
+
 class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator]):
     """Base entity associated with an AiMesh node."""
 
@@ -23,16 +37,7 @@ class AsusWifiDiagnosticsEntity(CoordinatorEntity[AsusWifiDiagnosticsCoordinator
         # that identifier merges these diagnostics onto the existing device and
         # preserves its room, while our own identifier keeps this integration
         # standalone when AsusRouter isn't installed.
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                (DOMAIN, node.mac.lower()),
-                ("asusrouter", node.mac.lower()),
-            },
-            manufacturer=MANUFACTURER,
-            model=node.model,
-            name=node.display_name,
-            configuration_url=f"http://{node.host}",
-        )
+        self._attr_device_info = device_info_for(node)
 
     @property
     def available(self) -> bool:

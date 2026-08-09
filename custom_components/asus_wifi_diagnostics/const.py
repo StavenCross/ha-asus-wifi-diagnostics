@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 DOMAIN = "asus_wifi_diagnostics"
-PLATFORMS = ["sensor", "binary_sensor"]
+PLATFORMS = ["sensor", "binary_sensor", "event"]
 
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_CRITICAL_UTILIZATION = "critical_utilization"

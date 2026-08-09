@@ -21,6 +21,7 @@ from .parser import (
     parse_scan_results,
     parse_ssid,
     parse_station_stats,
+    parse_uptime_seconds,
     radio_interface_for,
     station_interface_for,
 )
@@ -136,6 +137,7 @@ class AsusWifiDiagnosticsApi:
             f"printf '\\n__SSID__\\n'; wl -i {station} ssid 2>/dev/null || true; "
             f"printf '\\n__SCAN__\\n'; "
             f"wl -i {radio} scanresults 2>/dev/null | head -n 1024; "
+            f"printf '\\n__UPTIME__\\n'; cat /proc/uptime 2>/dev/null || true; "
             f"printf '\\n__ASSOC__\\n'; "
             f"wl -i {station} assoclist"
         )
@@ -143,7 +145,8 @@ class AsusWifiDiagnosticsApi:
         channel_raw, remainder = output.split("__BSSID__", 1)
         bssid_raw, remainder = remainder.split("__SSID__", 1)
         ssid_raw, remainder = remainder.split("__SCAN__", 1)
-        scan_raw, assoc_raw = remainder.split("__ASSOC__", 1)
+        scan_raw, remainder = remainder.split("__UPTIME__", 1)
+        uptime_raw, assoc_raw = remainder.split("__ASSOC__", 1)
         station_macs = parse_assoclist(assoc_raw)[:128]
 
         stations = []
@@ -183,14 +186,19 @@ class AsusWifiDiagnosticsApi:
             ssid=parse_ssid(ssid_raw),
             nearby_bss=nearby_bss,
             stations=tuple(stations),
+            router_uptime_seconds=parse_uptime_seconds(uptime_raw),
         )
 
     async def collect(self, nodes: list[MeshNode]) -> NetworkSnapshot:
         """Collect a network snapshot, preserving reachable nodes."""
-        leases_raw = await self._run(
-            self.host, "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true"
-        )
-        leases = parse_leases(leases_raw)
+        try:
+            leases_raw = await self._run(
+                self.host, "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true"
+            )
+            leases = parse_leases(leases_raw)
+        except AsusWifiDiagnosticsError as err:
+            _LOGGER.warning("Could not read DHCP leases from %s: %s", self.host, err)
+            leases = {}
         results = await asyncio.gather(
             *(self._collect_node(node, leases) for node in nodes),
             return_exceptions=True,
@@ -219,11 +227,13 @@ class AsusWifiDiagnosticsApi:
             return False
 
         snapshots: dict[str, NodeSnapshot] = {}
+        failures: dict[str, str] = {}
         for node, result in zip(nodes, results, strict=True):
             if isinstance(result, Exception):
                 _LOGGER.warning(
                     "Could not collect Wi-Fi diagnostics from %s: %s", node.host, result
                 )
+                failures[node.mac] = result.__class__.__name__
                 continue
             stations = []
             for station in result.stations:
@@ -276,6 +286,4 @@ class AsusWifiDiagnosticsApi:
                 same_channel_mesh_bss=same_channel_mesh_bss,
                 stations=tuple(stations),
             )
-        if not snapshots:
-            raise CannotConnectError("No AiMesh node returned diagnostics")
-        return NetworkSnapshot(nodes=snapshots)
+        return NetworkSnapshot(nodes=snapshots, failures=failures)

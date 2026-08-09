@@ -9,6 +9,7 @@ from custom_components.asus_wifi_diagnostics.parser import (
     parse_scan_results,
     parse_ssid,
     parse_station_stats,
+    parse_uptime_seconds,
 )
 
 
@@ -77,6 +78,11 @@ def test_parse_bssid_and_ssid() -> None:
     assert parse_bssid("BSSID: aa:bb:cc:dd:ee:ff") == "AA:BB:CC:DD:EE:FF"
     assert parse_bssid("not associated") is None
     assert parse_ssid('Current SSID: "TheOneAndOnly"') == "TheOneAndOnly"
+
+
+def test_parse_uptime_seconds() -> None:
+    assert parse_uptime_seconds("12345.67 9000.00\n") == 12345
+    assert parse_uptime_seconds("unavailable") is None
 
 
 def test_parse_scan_results_is_signal_sorted_and_deduplicated() -> None:

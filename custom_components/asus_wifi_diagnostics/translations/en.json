@@ -29,8 +29,24 @@
       "noise_floor": {"name": "Noise floor"},
       "connected_clients": {"name": "2.4 GHz connected clients"},
       "diagnosis": {"name": "2.4 GHz diagnosis"},
-      "worst_client": {"name": "Most suspicious client"}
+      "worst_client": {"name": "Most suspicious client"},
+      "transmit_airtime": {"name": "Transmit airtime"},
+      "own_wifi_airtime": {"name": "Own Wi-Fi airtime"},
+      "no_category_airtime": {"name": "Uncategorized airtime"},
+      "no_packet_airtime": {"name": "No-packet airtime"},
+      "channel_glitches": {"name": "Channel glitches"},
+      "bad_plcp": {"name": "Malformed Wi-Fi headers"},
+      "worst_client_retry": {"name": "Worst client retry rate"},
+      "worst_client_rssi": {"name": "Worst client signal"},
+      "worst_client_failures": {"name": "Worst client failures"},
+      "router_uptime": {"name": "Router uptime"}
     },
-    "binary_sensor": {"congested": {"name": "2.4 GHz congested"}}
+    "binary_sensor": {
+      "congested": {"name": "2.4 GHz congested"},
+      "reachable": {"name": "Diagnostics reachable"}
+    },
+    "event": {
+      "incident": {"name": "Wi-Fi incident"}
+    }
   }
 }

@@ -6,8 +6,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -57,6 +67,11 @@ def _worst_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
         "tx_retry_percent": station.retry_percent,
         "tx_failures": station.tx_failures,
     }
+
+
+def _worst_value(snapshot: NodeSnapshot, attribute: str) -> Any:
+    station = snapshot.worst_station
+    return getattr(station, attribute) if station else None
 
 
 def _client_map_attrs(snapshot: NodeSnapshot) -> dict[str, Any]:
@@ -122,6 +137,7 @@ SENSORS = (
         key="utilization",
         translation_key="utilization",
         native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
         value_fn=lambda snapshot: snapshot.channel.busy,
     ),
@@ -129,6 +145,7 @@ SENSORS = (
         key="overlapping_wifi",
         translation_key="overlapping_wifi",
         native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:access-point-network",
         value_fn=lambda snapshot: snapshot.channel.obss,
@@ -138,7 +155,8 @@ SENSORS = (
         key="noise_floor",
         translation_key="noise_floor",
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
-        device_class="signal_strength",
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda snapshot: snapshot.channel.noise,
     ),
@@ -146,6 +164,7 @@ SENSORS = (
         key="connected_clients",
         translation_key="connected_clients",
         icon="mdi:devices",
+        state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda snapshot: len(snapshot.stations),
         attrs_fn=_client_map_attrs,
     ),
@@ -166,6 +185,97 @@ SENSORS = (
             else None
         ),
         attrs_fn=_worst_attrs,
+    ),
+    AsusWifiSensorDescription(
+        key="transmit_airtime",
+        translation_key="transmit_airtime",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:upload-network",
+        value_fn=lambda snapshot: snapshot.channel.tx,
+    ),
+    AsusWifiSensorDescription(
+        key="own_wifi_airtime",
+        translation_key="own_wifi_airtime",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:access-point-network",
+        value_fn=lambda snapshot: snapshot.channel.in_bss,
+    ),
+    AsusWifiSensorDescription(
+        key="no_category_airtime",
+        translation_key="no_category_airtime",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:signal-off",
+        value_fn=lambda snapshot: snapshot.channel.no_category,
+    ),
+    AsusWifiSensorDescription(
+        key="no_packet_airtime",
+        translation_key="no_packet_airtime",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:radio-tower",
+        value_fn=lambda snapshot: snapshot.channel.no_packet,
+    ),
+    AsusWifiSensorDescription(
+        key="channel_glitches",
+        translation_key="channel_glitches",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:lightning-bolt",
+        value_fn=lambda snapshot: snapshot.channel.glitches,
+    ),
+    AsusWifiSensorDescription(
+        key="bad_plcp",
+        translation_key="bad_plcp",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:alert-decagram-outline",
+        value_fn=lambda snapshot: snapshot.channel.bad_plcp,
+    ),
+    AsusWifiSensorDescription(
+        key="worst_client_retry",
+        translation_key="worst_client_retry",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:backup-restore",
+        value_fn=lambda snapshot: _worst_value(snapshot, "retry_percent"),
+        attrs_fn=_worst_attrs,
+    ),
+    AsusWifiSensorDescription(
+        key="worst_client_rssi",
+        translation_key="worst_client_rssi",
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda snapshot: _worst_value(snapshot, "rssi"),
+        attrs_fn=_worst_attrs,
+    ),
+    AsusWifiSensorDescription(
+        key="worst_client_failures",
+        translation_key="worst_client_failures",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:close-network-outline",
+        value_fn=lambda snapshot: _worst_value(snapshot, "tx_failures"),
+        attrs_fn=_worst_attrs,
+    ),
+    AsusWifiSensorDescription(
+        key="router_uptime",
+        translation_key="router_uptime",
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:timer-outline",
+        value_fn=lambda snapshot: snapshot.router_uptime_seconds,
     ),
 )
 
@@ -207,6 +317,9 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
         if snapshot is None:
             return None
         base = {
+            "diagnostic_key": self.entity_description.key,
+            "node_name": self.node.display_name,
+            "node_mac": self.node.mac,
             "channel": snapshot.channel.channel,
             "radio_interface": self.node.radio_interface,
             "node_ip": self.node.host,
@@ -229,7 +342,7 @@ def _band_for(frequency_mhz: int) -> str:
 class CouchCastWifiProbeSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], SensorEntity):
     """Represent the latest full-band survey from CouchCast."""
 
-    _attr_icon = "mdi:access-point-search"
+    _attr_icon = "mdi:access-point"
     _attr_name = "CouchCast external Wi-Fi networks"
 
     def __init__(self, coordinator, entry_id: str) -> None:
