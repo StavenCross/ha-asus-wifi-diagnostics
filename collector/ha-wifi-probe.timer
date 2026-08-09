@@ -1,0 +1,12 @@
+[Unit]
+Description=Survey nearby Wi-Fi from CouchCast every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=ha-wifi-probe.service
+
+[Install]
+WantedBy=timers.target

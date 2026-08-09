@@ -4,9 +4,10 @@
   "codeowners": ["@StavenCross"],
   "config_flow": true,
   "documentation": "https://github.com/stavencross/ha-asus-wifi-diagnostics",
+  "dependencies": ["webhook"],
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/stavencross/ha-asus-wifi-diagnostics/issues",
   "requirements": ["asyncssh==2.21.0"],
-  "version": "0.3.2"
+  "version": "0.4.0"
 }

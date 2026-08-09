@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant, callback
@@ -10,7 +11,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import AsusWifiDiagnosticsApi, AsusWifiDiagnosticsError
 from .const import DISCOVERY_INTERVAL, DOMAIN
-from .models import MeshNode, NetworkSnapshot
+from .models import MeshNode, NetworkSnapshot, ProbeSnapshot
 
 
 class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
@@ -31,6 +32,7 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         self.api = api
         self.nodes: list[MeshNode] = []
         self._last_discovery: datetime | None = None
+        self.webhook_id = ""
 
     async def _async_update_data(self) -> NetworkSnapshot:
         now = dt_util.utcnow()
@@ -42,7 +44,10 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
             ):
                 self.nodes = await self.api.discover_nodes()
                 self._last_discovery = now
-            return await self.api.collect(self.nodes)
+            snapshot = await self.api.collect(self.nodes)
+            if self.data and self.data.probes:
+                snapshot = replace(snapshot, probes=self.data.probes)
+            return snapshot
         except AsusWifiDiagnosticsError as err:
             raise UpdateFailed(str(err)) from err
 
@@ -51,3 +56,10 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         """Return a node snapshot from current data."""
         return self.data.nodes.get(mac) if self.data else None
 
+    @callback
+    def async_update_probe(self, report: ProbeSnapshot) -> None:
+        """Store a probe report and notify entities immediately."""
+        if self.data is None:
+            return
+        probes = {**self.data.probes, report.probe_id: report}
+        self.async_set_updated_data(replace(self.data, probes=probes))

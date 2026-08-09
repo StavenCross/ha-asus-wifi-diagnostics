@@ -1,0 +1,11 @@
+[Unit]
+Description=Report CouchCast nearby Wi-Fi to Home Assistant
+After=network-online.target NetworkManager.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/ha-wifi-probe/config
+ExecStart=%h/.local/libexec/couchcast-wifi-probe
+
+[Install]
+WantedBy=default.target

@@ -27,4 +27,3 @@ RADIO_INTERFACES = {
     "XT8_V2": "eth4",
     "RT-AX95Q": "eth4",
 }
-

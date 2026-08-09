@@ -20,6 +20,8 @@ For each AiMesh node:
   interference, client pressure, or general congestion
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
   per-poll retry percentage and failure deltas as attributes
+- an optional full-band Linux Wi-Fi probe that reports nearby external networks
+  from the Home Assistant host without disconnecting its existing Wi-Fi connection
 
 The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
 `wl chanim_stats`, `wl cur_etheraddr`, `wl ssid`, a current-channel passive
@@ -32,6 +34,15 @@ already using. It sends no probe requests and does not hop to other channels.
 This is deliberately narrower and less disruptive than a site survey: it finds
 the BSSIDs relevant to current-channel OBSS airtime, not every Wi-Fi network in
 range.
+
+### CouchCast full-band probe
+
+The `collector/` directory contains a dependency-free NetworkManager probe and
+systemd user timer. It runs every 15 minutes, reads the same scan results shown
+by the Linux Wi-Fi panel, and reports them to the integration's LAN-only webhook.
+The probe remains associated with its current network while NetworkManager scans.
+Its Home Assistant URL is isolated in `~/.config/ha-wifi-probe/config`, so moving
+Home Assistant only requires changing that one URL.
 
 ## Supported hardware
 

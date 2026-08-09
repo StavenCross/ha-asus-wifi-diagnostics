@@ -22,4 +22,3 @@ async def async_get_config_entry_diagnostics(
         "config": async_redact_data(dict(entry.data), TO_REDACT),
         "snapshot": asdict(coordinator.data) if coordinator.data else None,
     }
-

@@ -48,4 +48,3 @@ class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
     def extra_state_attributes(self):
         """Return the threshold used."""
         return {"threshold": self.threshold}
-

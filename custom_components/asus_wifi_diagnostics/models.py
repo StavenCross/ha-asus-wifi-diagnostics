@@ -51,6 +51,31 @@ class NearbyBss:
 
 
 @dataclass(frozen=True, slots=True)
+class ProbeBss:
+    """A BSS observed by an external Wi-Fi probe."""
+
+    ssid: str
+    bssid: str
+    channel: int
+    frequency_mhz: int
+    signal_percent: int
+    security: str
+    in_use: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeSnapshot:
+    """A bounded nearby-network survey reported by a probe."""
+
+    probe_id: str
+    name: str
+    interface: str
+    collected_at: str
+    received_at: str
+    networks: tuple[ProbeBss, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
 class StationStats:
     """A connected station snapshot."""
 
@@ -103,3 +128,4 @@ class NetworkSnapshot:
     """The latest network-wide snapshot."""
 
     nodes: dict[str, NodeSnapshot]
+    probes: dict[str, ProbeSnapshot] = field(default_factory=dict)
