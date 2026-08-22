@@ -24,7 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AsusWifiDiagnosticsConfigEntry
-from .const import BAND_5_GHZ
+from .const import BAND_5_GHZ, CONF_CLIENT_OVERRIDES
 from .coordinator import AsusWifiDiagnosticsCoordinator
 from .entity import AsusWifiDiagnosticsEntity
 from .models import NodeSnapshot
@@ -322,6 +322,13 @@ async def async_setup_entry(
         for node in coordinator.nodes
         for description in descriptions_for(node)
     )
+    # A manual mapping is an explicit operator-confirmed device identity.  Give each mapped
+    # client one compact sensor so the Recorder captures a node/radio transition as a durable
+    # state change instead of leaving the evidence buried in a transient node client-map.
+    async_add_entities(
+        ClientAssociationSensor(coordinator, entry.entry_id, mac, device_id)
+        for mac, device_id in sorted(entry.options.get(CONF_CLIENT_OVERRIDES, {}).items())
+    )
     async_add_entities([CouchCastWifiProbeSensor(coordinator, entry.entry_id)])
 
 
@@ -388,6 +395,61 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
                 )
             )
         return base
+
+
+class ClientAssociationSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], SensorEntity):
+    """Persist one confirmed client's current AiMesh association and link quality.
+
+    The state changes only for meaningful association outcomes (node/radio or disconnected).
+    Link measurements remain attributes, allowing diagnostics to correlate a recorded roam with
+    RSSI, retry, rate, and failure data while avoiding an invented router-side roam event.
+    """
+
+    _attr_icon = "mdi:wifi-marker"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = False
+
+    def __init__(self, coordinator, entry_id: str, mac: str, device_id: str) -> None:
+        super().__init__(coordinator)
+        self._mac = mac.upper()
+        self._device_id = device_id
+        record = coordinator.ownership.by_device_id.get(device_id)
+        self._attr_name = f"{record.name if record else self._mac} Wi-Fi association"
+        self._attr_unique_id = f"{entry_id}_client_association_{self._mac.replace(':', '').lower()}"
+
+    @property
+    def native_value(self) -> str:
+        """Return a compact association state suitable for Recorder roam history."""
+        association = self.coordinator.association_for(self._mac)
+        if association is None:
+            return "not_connected"
+        node, _station = association
+        return f"{node.display_name} · {node.band_name}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose exact router evidence for the current association observation."""
+        association = self.coordinator.association_for(self._mac)
+        base = {"client_mac": self._mac, "ha_device_id": self._device_id}
+        if association is None:
+            return {**base, "connected": False}
+        node, station = association
+        return {
+            **base,
+            "connected": True,
+            "node_name": node.display_name,
+            "node_mac": node.mac,
+            "node_ip": node.host,
+            "band": node.band_name,
+            "radio_interface": node.radio_interface,
+            "ip": station.ip,
+            "rssi": station.rssi,
+            "noise": station.noise,
+            "tx_rate_mbps": station.tx_rate_mbps,
+            "rx_rate_mbps": station.rx_rate_mbps,
+            "tx_retry_percent": station.retry_percent,
+            "tx_failures": station.tx_failures,
+        }
 
 
 def _band_for(frequency_mhz: int) -> str:

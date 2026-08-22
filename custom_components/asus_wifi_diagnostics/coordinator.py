@@ -10,9 +10,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .association import find_association
 from .api import AsusWifiDiagnosticsApi, AsusWifiDiagnosticsError
 from .const import DISCOVERY_INTERVAL, DOMAIN
-from .models import MeshNode, NetworkSnapshot, ProbeSnapshot
+from .models import MeshNode, NetworkSnapshot, ProbeSnapshot, StationStats
 from .ownership import OwnershipIndex, build_ownership_index
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +109,16 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         """Return the bounded failure classification from the latest poll."""
         key = node.snapshot_key if isinstance(node, MeshNode) else node
         return self.data.failures.get(key) if self.data else None
+
+    @callback
+    def association_for(self, mac: str) -> tuple[MeshNode, StationStats] | None:
+        """Return the current router-observed association for one confirmed client MAC.
+
+        Manual client mappings are deliberate operator confirmations.  Looking them up from
+        every current node snapshot turns the router's transient station tables into a single,
+        recorder-friendly observation without guessing ownership from an IP address or name.
+        """
+        return find_association(self.data, mac)
 
     @callback
     def async_update_probe(self, report: ProbeSnapshot) -> None:

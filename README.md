@@ -27,6 +27,9 @@ For each AiMesh node:
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
   per-poll retry percentage and failure deltas as attributes
 - numeric worst-client retry, signal, and failure sensors for historical correlation
+- a dedicated recorder-friendly association sensor for every manually confirmed client,
+  recording its current AiMesh node/radio (or `not_connected`) plus router RSSI, rates,
+  retry percentage, and failure count; a node/radio state change is a real observed roam
 - router uptime and a node reachability sensor that records partial AiMesh outages
 - sparse Wi-Fi incident event entities. A sustained critical-utilization period,
   recovery, node loss/recovery, or router uptime reset stores a bounded evidence
