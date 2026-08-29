@@ -75,6 +75,7 @@ def parse_mesh_nodes(raw: str) -> list[MeshNode]:
                 is_controller=is_controller,
                 radio_interface=radio_interface,
                 station_interface=station_interface_for(model, is_controller, radio_interface),
+                observer_profile="main_mesh",
             )
         )
     return nodes
@@ -99,9 +100,33 @@ def expand_client_radios(node: MeshNode, model: str | None = None) -> list[MeshN
                     product, node.is_controller, radio_interface, band
                 ),
                 band=band,
+                observer_profile=node.observer_profile,
             )
         )
     return radios
+
+
+def parse_standalone_identity(raw: str, host: str, observer_profile: str) -> MeshNode | None:
+    """Build a safe standalone AP node from bounded ASUS identity output.
+
+    Standalone APs are not present in the AiMesh controller inventory. The model must still map to
+    an allowlisted radio interface before this function returns a pollable node.
+    """
+    model_raw, separator, mac_raw = raw.partition("__LAN_MAC__")
+    model = model_raw.strip()
+    mac_match = _MAC_RE.search(mac_raw if separator else "")
+    radio_interface = radio_interface_for(model)
+    if not model or mac_match is None or radio_interface is None:
+        return None
+    return MeshNode(
+        model=model,
+        host=str(ipaddress.ip_address(host)),
+        mac=mac_match.group(0).upper(),
+        is_controller=True,
+        radio_interface=radio_interface,
+        station_interface=station_interface_for(model, True, radio_interface),
+        observer_profile=observer_profile,
+    )
 
 
 def parse_channel_stats(raw: str) -> ChannelStats:

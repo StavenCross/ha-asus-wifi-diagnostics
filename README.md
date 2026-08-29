@@ -27,9 +27,9 @@ For each AiMesh node:
 - the most suspicious associated client, with MAC/IP/name, signal, link rate,
   per-poll retry percentage and failure deltas as attributes
 - numeric worst-client retry, signal, and failure sensors for historical correlation
-- a dedicated recorder-friendly association sensor for every manually confirmed client,
-  recording its current AiMesh node/radio (or `not_connected`) plus router RSSI, rates,
-  retry percentage, and failure count; a node/radio state change is a real observed roam
+- a dedicated recorder-friendly presence sensor for every monitored client, publishing only
+  `connected`, `not_connected`, or `unknown` plus a versioned, freshness-attributed observation;
+  optional Home Assistant device ownership preserves the existing entity identity
 - router uptime and a node reachability sensor that records partial AiMesh outages
 - sparse Wi-Fi incident event entities. A sustained critical-utilization period,
   recovery, node loss/recovery, or router uptime reset stores a bounded evidence
@@ -42,6 +42,49 @@ The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
 `wl scan`, `wl scanresults`, `wl assoclist`, `wl sta_info`, `/proc/uptime`, and a
 dnsmasq lease read).
 It never changes router configuration.
+
+### Monitored-client presence contract
+
+Version 0.8.0 separates router observation from device or power inference. Each explicitly enrolled
+MAC publishes one diagnostic enum sensor:
+
+- `connected` means at least one eligible, current router/AP station table contains the MAC;
+- `not_connected` means every eligible router/AP radio completed the current poll and none contains
+  the MAC; and
+- `unknown` means the observation is incomplete, stale, has no eligible observer, or an eligible AP
+  failed.
+
+The sensor attributes include contract version, poll generation, observation time, observer profile,
+expected band, eligible/queried/failed observers, and the current association details when present.
+A positive observation wins even if another observer fails. A missing client can never become
+`not_connected` from a failed SSH command or missing radio snapshot.
+
+These sensors are evidence providers. They do not claim that a device has mains power, infer that a
+light is illuminated, or command a client. Downstream integrations may combine a fresh complete
+observation with other independent evidence.
+
+Existing v0.7 manual MAC-to-device mappings are read as monitored clients without changing their
+entity unique IDs. New monitored clients may use a friendly name without linking a Home Assistant
+device. Observer profiles scope completeness to `main_mesh`, `iot_ap`, or `all_client_aps`, and the
+expected band may be 2.4 GHz, 5 GHz, or any.
+
+### Standalone access points
+
+An ASUS AP removed from AiMesh no longer appears reliably in the controller's live node inventory
+and may remain there as a stale NVRAM row. Add it through **Settings > Devices & services > ASUS
+Wi-Fi Diagnostics > Configure > Add a standalone access point**. The flow:
+
+1. connects with the integration's existing SSH credentials;
+2. records or verifies the AP's SSH host-key fingerprint;
+3. reads only its product ID and LAN MAC;
+4. rejects models without an allowlisted client-interface layout; and
+5. stores the AP under one concrete observer profile.
+
+Explicit standalone configuration overrides a stale AiMesh row for the same host so physical
+client-facing interfaces are used instead of obsolete AiMesh virtual interfaces. If the optional AP
+is offline during startup, main-mesh diagnostics still load and affected monitored clients remain
+`unknown`. Different physical APs are collected concurrently; radios on the same AP remain
+sequential to limit firmware load.
 
 Every 15 minutes, the integration passively scans only the channel the radio is
 already using. It sends no probe requests and does not hop to other channels.
@@ -91,9 +134,9 @@ become ownership until confirmed with a manual MAC mapping.
 
 Some integrations do not expose a device MAC or IP. To add a portable manual
 association, open **Settings > Devices & services > ASUS Wi-Fi Diagnostics >
-Configure > Add a manual client mapping**. Choose the Home Assistant device and
-enter the network client's MAC. Manual mappings are stored in config-entry
-options and are included in normal Home Assistant backups.
+Configure > Add a monitored client**. Enter the network client's MAC, name, observer
+profile, and expected band. Linking a Home Assistant device is optional. Records are
+stored in config-entry options and included in normal Home Assistant backups.
 
 ## Supported hardware
 

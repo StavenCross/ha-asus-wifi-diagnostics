@@ -27,30 +27,56 @@
   "options": {
     "step": {
       "init": {
-        "title": "Manage client ownership",
+        "title": "Manage client presence evidence",
         "menu_options": {
-          "add_mapping": "Add a manual client mapping",
-          "remove_mapping": "Remove a manual client mapping"
+          "add_client": "Add a monitored client",
+          "remove_client": "Remove a monitored client",
+          "add_access_point": "Add a standalone access point",
+          "remove_access_point": "Remove a standalone access point"
         }
       },
-      "add_mapping": {
-        "title": "Add a manual client mapping",
-        "description": "Use this only when Home Assistant does not expose the device MAC or IP. The mapping is stored with the integration and included in Home Assistant backups.",
+      "add_client": {
+        "title": "Add a monitored client",
+        "description": "Enroll a MAC for recorder-friendly connected, not connected, or unknown evidence. The optional Home Assistant device preserves ownership metadata.",
         "data": {
           "client_mac": "Network client MAC address",
-          "ha_device_id": "Home Assistant device"
+          "client_name": "Client name",
+          "observer_profile": "Eligible access-point group",
+          "client_band": "Expected Wi-Fi band",
+          "ha_device_id": "Home Assistant device (optional)"
         }
       },
-      "remove_mapping": {
-        "title": "Remove a manual client mapping",
+      "remove_client": {
+        "title": "Remove a monitored client",
         "data": {
-          "client_mac": "Manual mapping"
+          "client_mac": "Monitored client"
+        }
+      },
+      "add_access_point": {
+        "title": "Add a standalone ASUS access point",
+        "description": "The integration validates the model and allowlisted client-facing radios with bounded read-only SSH before saving it.",
+        "data": {
+          "host": "Access-point IP address",
+          "access_point_name": "Access-point name",
+          "observer_profile": "Observer group"
+        }
+      },
+      "remove_access_point": {
+        "title": "Remove a standalone access point",
+        "data": {
+          "host": "Standalone access point"
         }
       }
     },
     "error": {
       "invalid_mac": "Enter a complete MAC address such as AA:BB:CC:DD:EE:FF",
-      "device_not_found": "The selected Home Assistant device no longer exists"
+      "device_not_found": "The selected Home Assistant device no longer exists",
+      "invalid_host": "Enter a valid IPv4 address",
+      "already_configured": "This access point is already configured",
+      "cannot_connect": "Unable to connect to the access point over SSH",
+      "invalid_auth": "The access point rejected the configured SSH credentials",
+      "unsupported_router": "The access point does not expose a supported safe interface layout",
+      "unknown": "Unexpected error while validating the access point"
     }
   },
   "entity": {

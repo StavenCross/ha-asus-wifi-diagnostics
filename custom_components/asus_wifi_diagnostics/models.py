@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
+from enum import StrEnum
 
 from .const import BAND_2_4_GHZ, BAND_5_GHZ
 
@@ -18,6 +20,7 @@ class MeshNode:
     radio_interface: str = ""
     station_interface: str = ""
     band: str = BAND_2_4_GHZ
+    observer_profile: str = "main_mesh"
 
     @property
     def display_name(self) -> str:
@@ -144,8 +147,52 @@ class NodeSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class NetworkSnapshot:
-    """The latest network-wide snapshot."""
+    """The latest network-wide snapshot and its completeness generation.
+
+    Nodes contains only successful radio observations. Failures preserves every expected radio
+    which did not produce a current result so downstream client presence never mistakes an SSH or
+    collection failure for device absence.
+    """
 
     nodes: dict[str, NodeSnapshot]
     probes: dict[str, ProbeSnapshot] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
+    generation: int = 0
+    observed_at: datetime | None = None
+
+
+class ClientPresenceState(StrEnum):
+    """Describe the only router-side outcomes exposed for a monitored client."""
+
+    CONNECTED = "connected"
+    NOT_CONNECTED = "not_connected"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoredClient:
+    """Describe one operator-enrolled MAC and the observers allowed to judge it.
+
+    The optional Home Assistant device preserves the existing ownership link, while name and
+    observer profile allow infrastructure clients to be monitored without inventing a HA device.
+    """
+
+    mac: str
+    name: str
+    observer_profile: str
+    band: str
+    ha_device_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClientPresenceObservation:
+    """Return one complete, attributable router-side client-presence decision."""
+
+    client: MonitoredClient
+    state: ClientPresenceState
+    generation: int
+    observed_at: datetime | None
+    eligible_observers: tuple[str, ...]
+    queried_observers: tuple[str, ...]
+    failed_observers: tuple[str, ...]
+    association: tuple[MeshNode, StationStats] | None = None

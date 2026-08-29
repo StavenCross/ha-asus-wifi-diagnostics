@@ -19,16 +19,15 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AsusWifiDiagnosticsConfigEntry
-from .const import BAND_5_GHZ, CONF_CLIENT_OVERRIDES
-from .coordinator import AsusWifiDiagnosticsCoordinator
+from .client_sensor import ClientPresenceSensor
+from .configuration import monitored_clients
+from .const import BAND_5_GHZ
 from .entity import AsusWifiDiagnosticsEntity
 from .models import NodeSnapshot
-from .probe import bssid_radio_fingerprint
+from .probe_sensor import CouchCastWifiProbeSensor
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -322,12 +321,9 @@ async def async_setup_entry(
         for node in coordinator.nodes
         for description in descriptions_for(node)
     )
-    # A manual mapping is an explicit operator-confirmed device identity.  Give each mapped
-    # client one compact sensor so the Recorder captures a node/radio transition as a durable
-    # state change instead of leaving the evidence buried in a transient node client-map.
     async_add_entities(
-        ClientAssociationSensor(coordinator, entry.entry_id, mac, device_id)
-        for mac, device_id in sorted(entry.options.get(CONF_CLIENT_OVERRIDES, {}).items())
+        ClientPresenceSensor(coordinator, entry.entry_id, client)
+        for client in monitored_clients(entry.options).values()
     )
     async_add_entities([CouchCastWifiProbeSensor(coordinator, entry.entry_id)])
 
@@ -378,9 +374,7 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
                 }
                 for client in base.get("clients", [])
             ]
-            base["mapped_clients"] = sum(
-                1 for client in base["clients"] if client.get("ha_mapped")
-            )
+            base["mapped_clients"] = sum(1 for client in base["clients"] if client.get("ha_mapped"))
             base["unmapped_clients"] = len(base["clients"]) - base["mapped_clients"]
             base["suggested_clients"] = sum(
                 1 for client in base["clients"] if client.get("ha_suggestion_count")
@@ -395,181 +389,3 @@ class AsusWifiSensor(AsusWifiDiagnosticsEntity, SensorEntity):
                 )
             )
         return base
-
-
-class ClientAssociationSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], SensorEntity):
-    """Persist one confirmed client's current AiMesh association and link quality.
-
-    The state changes only for meaningful association outcomes (node/radio or disconnected).
-    Link measurements remain attributes, allowing diagnostics to correlate a recorded roam with
-    RSSI, retry, rate, and failure data while avoiding an invented router-side roam event.
-    """
-
-    _attr_icon = "mdi:wifi-marker"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_has_entity_name = False
-
-    def __init__(self, coordinator, entry_id: str, mac: str, device_id: str) -> None:
-        super().__init__(coordinator)
-        self._mac = mac.upper()
-        self._device_id = device_id
-        record = coordinator.ownership.by_device_id.get(device_id)
-        self._attr_name = f"{record.name if record else self._mac} Wi-Fi association"
-        self._attr_unique_id = f"{entry_id}_client_association_{self._mac.replace(':', '').lower()}"
-
-    @property
-    def native_value(self) -> str:
-        """Return a compact association state suitable for Recorder roam history."""
-        association = self.coordinator.association_for(self._mac)
-        if association is None:
-            return "not_connected"
-        node, _station = association
-        return f"{node.display_name} · {node.band_name}"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Expose exact router evidence for the current association observation."""
-        association = self.coordinator.association_for(self._mac)
-        base = {"client_mac": self._mac, "ha_device_id": self._device_id}
-        if association is None:
-            return {**base, "connected": False}
-        node, station = association
-        return {
-            **base,
-            "connected": True,
-            "node_name": node.display_name,
-            "node_mac": node.mac,
-            "node_ip": node.host,
-            "band": node.band_name,
-            "radio_interface": node.radio_interface,
-            "ip": station.ip,
-            "rssi": station.rssi,
-            "noise": station.noise,
-            "tx_rate_mbps": station.tx_rate_mbps,
-            "rx_rate_mbps": station.rx_rate_mbps,
-            "tx_retry_percent": station.retry_percent,
-            "tx_failures": station.tx_failures,
-        }
-
-
-def _band_for(frequency_mhz: int) -> str:
-    if 2400 <= frequency_mhz < 2500:
-        return "2.4 GHz"
-    if 4900 <= frequency_mhz < 5900:
-        return "5 GHz"
-    if 5925 <= frequency_mhz < 7125:
-        return "6 GHz"
-    return "Other"
-
-
-class CouchCastWifiProbeSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], SensorEntity):
-    """Represent the latest full-band survey from CouchCast."""
-
-    _attr_icon = "mdi:access-point"
-    _attr_name = "CouchCast external Wi-Fi networks"
-
-    def __init__(self, coordinator, entry_id: str) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry_id}_couchcast_external_wifi"
-        self._attr_device_info = DeviceInfo(
-            identifiers={("asus_wifi_diagnostics", "couchcast_wifi_probe")},
-            name="CouchCast Wi-Fi Probe",
-            manufacturer="NetworkManager",
-            model="Linux Wi-Fi survey probe",
-        )
-
-    @property
-    def _report(self):
-        return self.coordinator.data.probes.get("couchcast") if self.coordinator.data else None
-
-    def _classified(self):
-        report = self._report
-        if report is None:
-            return [], []
-        own_bssids: set[str] = set()
-        own_fingerprints: set[str] = set()
-        own_ssids: set[str] = set()
-        for snapshot in self.coordinator.data.nodes.values():
-            own_fingerprints.add(bssid_radio_fingerprint(snapshot.node.mac))
-            if snapshot.bssid:
-                own_bssids.add(snapshot.bssid.upper())
-            if snapshot.ssid:
-                own_ssids.add(snapshot.ssid)
-            own_bssids.update(network.bssid.upper() for network in snapshot.same_channel_mesh_bss)
-            own_bssids.update(
-                network.bssid.upper() for network in snapshot.nearby_bss if network.is_own_mesh
-            )
-        own, external = [], []
-        for network in report.networks:
-            is_own = (
-                network.bssid in own_bssids
-                or network.ssid in own_ssids
-                or bssid_radio_fingerprint(network.bssid) in own_fingerprints
-            )
-            target = own if is_own else external
-            target.append(network)
-        return own, external
-
-    @property
-    def native_value(self) -> int | None:
-        """Return the number of external BSSIDs currently visible."""
-        if self._report is None:
-            return None
-        return len(self._classified()[1])
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return bounded, signal-sorted survey details."""
-        report = self._report
-        if report is None:
-            return {
-                "scan_available": False,
-                "webhook_path": f"/api/webhook/{self.coordinator.webhook_id}",
-            }
-        own, external = self._classified()
-
-        def attrs(network) -> dict[str, Any]:
-            return {
-                "ssid": network.ssid or "Hidden network",
-                "bssid": network.bssid,
-                "band": _band_for(network.frequency_mhz),
-                "channel": network.channel,
-                "frequency_mhz": network.frequency_mhz,
-                "signal_percent": network.signal_percent,
-                "security": network.security or "Open",
-                "in_use": network.in_use,
-            }
-
-        channels: dict[tuple[str, int], dict[str, Any]] = {}
-        for classification, networks in (("own", own), ("external", external)):
-            for network in networks:
-                key = (_band_for(network.frequency_mhz), network.channel)
-                summary = channels.setdefault(
-                    key,
-                    {"band": key[0], "channel": key[1], "own": 0, "external": 0},
-                )
-                summary[classification] += 1
-        connected = next((network for network in report.networks if network.in_use), None)
-        return {
-            "scan_available": True,
-            "probe_name": report.name,
-            "interface": report.interface,
-            "collected_at": report.collected_at,
-            "received_at": report.received_at,
-            "connected_ssid": connected.ssid if connected else None,
-            "connected_bssid": connected.bssid if connected else None,
-            "own_mesh_bssids_seen": len(own),
-            "external_bssids_seen": len(external),
-            "external_2_4_ghz_seen": sum(
-                1 for network in external if _band_for(network.frequency_mhz) == "2.4 GHz"
-            ),
-            "external_5_ghz_seen": sum(
-                1 for network in external if _band_for(network.frequency_mhz) == "5 GHz"
-            ),
-            "channel_summary": sorted(
-                channels.values(), key=lambda item: (item["band"], item["channel"])
-            ),
-            "own_mesh_bssids": [attrs(network) for network in own[:64]],
-            "external_bssids": [attrs(network) for network in external[:96]],
-            "webhook_path": f"/api/webhook/{self.coordinator.webhook_id}",
-        }

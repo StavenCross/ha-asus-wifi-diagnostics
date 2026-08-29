@@ -7,6 +7,7 @@ import logging
 import shlex
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from time import monotonic
 
 import asyncssh
@@ -21,6 +22,7 @@ from .parser import (
     parse_mesh_nodes,
     parse_scan_results,
     parse_ssid,
+    parse_standalone_identity,
     parse_station_stats,
     parse_uptime_seconds,
 )
@@ -55,14 +57,17 @@ class AsusWifiDiagnosticsApi:
         password: str,
         host_keys: dict[str, str] | None = None,
         host_key_callback: Callable[[str, str], None] | None = None,
+        additional_access_points: dict[str, str] | None = None,
     ) -> None:
         self.host = host
         self.username = username
         self.password = password
         self.host_keys = host_keys or {}
         self.host_key_callback = host_key_callback
+        self.additional_access_points = additional_access_points or {}
         self._station_counters: dict[tuple[str, str], tuple[int, int, int | None]] = {}
         self._last_passive_scan: dict[str, float] = {}
+        self._generation = 0
 
     async def _connect(self, host: str) -> asyncssh.SSHClientConnection:
         try:
@@ -103,9 +108,14 @@ class AsusWifiDiagnosticsApi:
             await connection.wait_closed()
 
     async def discover_nodes(self) -> list[MeshNode]:
-        """Discover supported AiMesh nodes from the controller."""
+        """Discover supported AiMesh nodes and explicitly enrolled standalone APs."""
         raw = await self._run(self.host, "nvram get cfg_device_list")
-        nodes = parse_mesh_nodes(raw)
+        # An AP explicitly enrolled as standalone may remain in stale AiMesh controller NVRAM.
+        # The operator-confirmed target wins so it is polled through physical client interfaces
+        # instead of an obsolete AiMesh virtual BSS layout.
+        nodes = [
+            node for node in parse_mesh_nodes(raw) if node.host not in self.additional_access_points
+        ]
         if not nodes:
             raise UnsupportedRouterError("No supported AiMesh nodes found")
 
@@ -117,7 +127,35 @@ class AsusWifiDiagnosticsApi:
             return expand_client_radios(node, product)
 
         identified = await asyncio.gather(*(identify(node) for node in nodes))
-        return [radio for node_radios in identified for radio in node_radios]
+        radios = [radio for node_radios in identified for radio in node_radios]
+        standalone = await asyncio.gather(
+            *(
+                self.discover_standalone_access_point(host, profile)
+                for host, profile in self.additional_access_points.items()
+            ),
+            return_exceptions=True,
+        )
+        for host, node_radios in zip(self.additional_access_points, standalone, strict=True):
+            if isinstance(node_radios, Exception):
+                _LOGGER.warning(
+                    "Could not discover standalone access point %s: %s", host, node_radios
+                )
+                continue
+            radios.extend(node_radios)
+        return radios
+
+    async def discover_standalone_access_point(
+        self, host: str, observer_profile: str
+    ) -> list[MeshNode]:
+        """Validate one explicit AP and return only its allowlisted client radios."""
+        raw = await self._run(
+            host,
+            "nvram get productid; printf '\\n__LAN_MAC__\\n'; nvram get lan_hwaddr",
+        )
+        node = parse_standalone_identity(raw, host, observer_profile)
+        if node is None:
+            raise UnsupportedRouterError(f"Unsupported standalone access point at {host}")
+        return expand_client_radios(node)
 
     async def _collect_node(
         self, node: MeshNode, leases: dict[str, tuple[str, str | None]]
@@ -184,6 +222,8 @@ class AsusWifiDiagnosticsApi:
 
     async def collect(self, nodes: list[MeshNode]) -> NetworkSnapshot:
         """Collect a network snapshot, preserving reachable nodes."""
+        self._generation += 1
+        observed_at = datetime.now(UTC)
         try:
             leases_raw = await self._run(
                 self.host, "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true"
@@ -294,4 +334,9 @@ class AsusWifiDiagnosticsApi:
                 same_channel_mesh_bss=same_channel_mesh_bss,
                 stations=tuple(stations),
             )
-        return NetworkSnapshot(nodes=snapshots, failures=failures)
+        return NetworkSnapshot(
+            nodes=snapshots,
+            failures=failures,
+            generation=self._generation,
+            observed_at=observed_at,
+        )

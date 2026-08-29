@@ -10,9 +10,36 @@ from custom_components.asus_wifi_diagnostics.parser import (
     parse_mesh_nodes,
     parse_scan_results,
     parse_ssid,
+    parse_standalone_identity,
     parse_station_stats,
     parse_uptime_seconds,
 )
+
+
+def test_parse_standalone_identity_uses_safe_controller_interfaces() -> None:
+    """An explicit AP uses allowlisted physical client radios rather than AiMesh VIFs."""
+    node = parse_standalone_identity(
+        "XT8\n__LAN_MAC__\nC8:7F:54:A3:C8:80\n",
+        "192.168.50.168",
+        "iot_ap",
+    )
+
+    assert node is not None
+    assert node.host == "192.168.50.168"
+    assert node.station_interface == "eth4"
+    assert node.observer_profile == "iot_ap"
+
+
+def test_parse_standalone_identity_rejects_unknown_model() -> None:
+    """Unknown firmware layouts remain unpolled rather than guessing a wl interface."""
+    assert (
+        parse_standalone_identity(
+            "MysteryRouter\n__LAN_MAC__\nC8:7F:54:A3:C8:80\n",
+            "192.168.50.168",
+            "iot_ap",
+        )
+        is None
+    )
 
 
 def test_parse_mesh_nodes_uses_safe_model_interfaces() -> None:

@@ -10,11 +10,19 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .association import find_association
 from .api import AsusWifiDiagnosticsApi, AsusWifiDiagnosticsError
+from .association import find_association
 from .const import DISCOVERY_INTERVAL, DOMAIN
-from .models import MeshNode, NetworkSnapshot, ProbeSnapshot, StationStats
+from .models import (
+    ClientPresenceState,
+    MeshNode,
+    MonitoredClient,
+    NetworkSnapshot,
+    ProbeSnapshot,
+    StationStats,
+)
 from .ownership import OwnershipIndex, build_ownership_index
+from .presence import evaluate_client_presence
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +36,7 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         api: AsusWifiDiagnosticsApi,
         update_interval: timedelta,
         manual_overrides: dict[str, str] | None = None,
+        monitored_clients: dict[str, MonitoredClient] | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -41,6 +50,8 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         self.last_node_success: dict[str, datetime] = {}
         self.webhook_id = ""
         self.manual_overrides = manual_overrides or {}
+        self.monitored_clients = monitored_clients or {}
+        self.last_client_connected: dict[str, datetime] = {}
         self.ownership = OwnershipIndex({}, {}, {})
 
     async def _async_update_data(self) -> NetworkSnapshot:
@@ -57,15 +68,20 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
                 except AsusWifiDiagnosticsError:
                     if not self.nodes:
                         raise
-                    _LOGGER.warning(
-                        "AiMesh rediscovery failed; polling the last known node set"
-                    )
+                    _LOGGER.warning("AiMesh rediscovery failed; polling the last known node set")
                 else:
                     self.nodes = discovered
                 self._last_discovery = now
             snapshot = await self.api.collect(self.nodes)
             for snapshot_key in snapshot.nodes:
                 self.last_node_success[snapshot_key] = now
+            for mac, client in self.monitored_clients.items():
+                observation = evaluate_client_presence(client, self.nodes, snapshot)
+                if (
+                    observation.state == ClientPresenceState.CONNECTED
+                    and snapshot.observed_at is not None
+                ):
+                    self.last_client_connected[mac] = snapshot.observed_at
             if self.data and self.data.probes:
                 snapshot = replace(snapshot, probes=self.data.probes)
             return snapshot
@@ -119,6 +135,16 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         recorder-friendly observation without guessing ownership from an IP address or name.
         """
         return find_association(self.data, mac)
+
+    @callback
+    def presence_for(self, mac: str):
+        """Return the typed current-generation observation for one enrolled client.
+
+        Client sensors call this single boundary so association completeness, profile selection,
+        and failure handling cannot drift between entity state and attributes.
+        """
+        client = self.monitored_clients[mac.upper()]
+        return evaluate_client_presence(client, self.nodes, self.data)
 
     @callback
     def async_update_probe(self, report: ProbeSnapshot) -> None:

@@ -43,6 +43,8 @@ def test_collects_router_uptime() -> None:
     result = asyncio.run(api.collect([NODE]))
     assert result.nodes[NODE.mac].router_uptime_seconds == 12345
     assert result.failures == {}
+    assert result.generation == 1
+    assert result.observed_at is not None
 
 
 def test_collect_keeps_24_and_5_ghz_snapshots_separate() -> None:
@@ -89,3 +91,45 @@ def test_collect_returns_node_failure_instead_of_stale_success() -> None:
     result = asyncio.run(api.collect([NODE]))
     assert result.nodes == {}
     assert result.failures == {NODE.mac: "CannotConnectError"}
+
+
+def test_discovers_allowlisted_standalone_access_point() -> None:
+    """An explicit standalone XT8 contributes physical client radios with its profile."""
+    api = AsusWifiDiagnosticsApi("192.168.50.1", "user", "password")
+
+    async def fake_run(host: str, command: str) -> str:
+        assert host == "192.168.50.168"
+        assert "productid" in command
+        return "XT8\n__LAN_MAC__\nC8:7F:54:A3:C8:80\n"
+
+    api._run = fake_run  # type: ignore[method-assign]
+    radios = asyncio.run(api.discover_standalone_access_point("192.168.50.168", "iot_ap"))
+
+    assert [radio.band for radio in radios] == ["2_4_ghz", "5_ghz"]
+    assert all(radio.observer_profile == "iot_ap" for radio in radios)
+    assert all(radio.station_interface in {"eth4", "eth5"} for radio in radios)
+
+
+def test_unavailable_standalone_ap_does_not_block_main_mesh_discovery() -> None:
+    """Optional AP loss degrades its clients to unknown without unloading all diagnostics."""
+    api = AsusWifiDiagnosticsApi(
+        "192.168.50.1",
+        "user",
+        "password",
+        additional_access_points={"192.168.50.168": "iot_ap"},
+    )
+
+    async def fake_run(host: str, command: str) -> str:
+        if host == "192.168.50.168":
+            raise CannotConnectError("offline")
+        if "cfg_device_list" in command:
+            return "<GT6>192.168.50.1>10:7C:61:1D:82:90>1"
+        if "productid" in command:
+            return "GT6\n"
+        raise AssertionError(command)
+
+    api._run = fake_run  # type: ignore[method-assign]
+    radios = asyncio.run(api.discover_nodes())
+
+    assert len(radios) == 2
+    assert {radio.observer_profile for radio in radios} == {"main_mesh"}

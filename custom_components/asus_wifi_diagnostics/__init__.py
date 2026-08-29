@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .api import AsusWifiDiagnosticsApi
+from .configuration import additional_access_points, monitored_clients
 from .const import (
     CONF_CLIENT_OVERRIDES,
     CONF_HOST_KEYS,
@@ -30,6 +31,8 @@ type AsusWifiDiagnosticsConfigEntry = ConfigEntry[AsusWifiDiagnosticsCoordinator
 async def async_setup_entry(hass: HomeAssistant, entry: AsusWifiDiagnosticsConfigEntry) -> bool:
     """Set up ASUS Wi-Fi Diagnostics from a config entry."""
     host_keys = dict(entry.data.get(CONF_HOST_KEYS, {}))
+    standalone = additional_access_points(entry.options)
+    clients = monitored_clients(entry.options)
 
     def save_host_key(host: str, fingerprint: str) -> None:
         host_keys[host] = fingerprint
@@ -43,12 +46,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: AsusWifiDiagnosticsConfi
         password=entry.data[CONF_PASSWORD],
         host_keys=host_keys,
         host_key_callback=save_host_key,
+        additional_access_points={
+            host: access_point.observer_profile for host, access_point in standalone.items()
+        },
     )
     coordinator = AsusWifiDiagnosticsCoordinator(
         hass,
         api,
         timedelta(seconds=entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
         manual_overrides=dict(entry.options.get(CONF_CLIENT_OVERRIDES, {})),
+        monitored_clients=clients,
     )
     coordinator.webhook_id = f"{DOMAIN}_{entry.entry_id}"
     await coordinator.async_config_entry_first_refresh()
