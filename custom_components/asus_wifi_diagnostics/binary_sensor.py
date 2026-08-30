@@ -36,8 +36,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     threshold = entry.data.get(CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION)
     async_add_entities(
-        AsusWifiCongestionSensor(coordinator, node, threshold)
-        for node in coordinator.nodes
+        AsusWifiCongestionSensor(coordinator, node, threshold) for node in coordinator.nodes
     )
     async_add_entities(
         AsusWifiReachabilitySensor(coordinator, node)
@@ -78,7 +77,7 @@ class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
 
 
 class AsusWifiReachabilitySensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
-    """Record whether an AiMesh node answered the latest bounded poll."""
+    """Publish transport reachability without converting SSH trust into a LAN outage."""
 
     entity_description = REACHABLE_DESCRIPTION
 
@@ -88,14 +87,19 @@ class AsusWifiReachabilitySensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
         return self.coordinator.last_update_success
 
     @property
-    def is_on(self) -> bool:
-        """Return whether the node supplied a current snapshot."""
-        return self.coordinator.snapshot_for(self.node) is not None
+    def is_on(self) -> bool | None:
+        """Return network connectivity independently from collection health."""
+        if self.coordinator.snapshot_for(self.node) is not None:
+            return True
+        evidence = self.coordinator.failure_evidence_for(self.node)
+        return evidence.transport_reachable if evidence else None
 
     @property
     def extra_state_attributes(self):
         """Return last-success and bounded failure evidence."""
         last_success = self.coordinator.last_node_success.get(self.node.snapshot_key)
+        evidence = self.coordinator.failure_evidence_for(self.node)
+        connected = self.is_on
         return {
             "diagnostic_key": self.entity_description.key,
             "node_name": self.node.display_name,
@@ -103,4 +107,14 @@ class AsusWifiReachabilitySensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
             "node_ip": self.node.host,
             "last_successful_poll": last_success.isoformat() if last_success else None,
             "failure": self.coordinator.failure_for(self.node),
+            "failure_kind": evidence.kind.value if evidence else None,
+            "connectivity_state": (
+                "connected"
+                if connected is True
+                else "unreachable"
+                if connected is False
+                else "unknown"
+            ),
+            "outage_eligible": evidence.outage_eligible if evidence else False,
+            "diagnostic_status": "healthy" if evidence is None else "fault",
         }

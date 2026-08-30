@@ -30,7 +30,8 @@ For each AiMesh node:
 - a dedicated recorder-friendly presence sensor for every monitored client, publishing only
   `connected`, `not_connected`, or `unknown` plus a versioned, freshness-attributed observation;
   optional Home Assistant device ownership preserves the existing entity identity
-- router uptime and a node reachability sensor that records partial AiMesh outages
+- router uptime and a node reachability sensor that separates transport loss from SSH diagnostic
+  trust, authentication, command, and collection faults
 - sparse Wi-Fi incident event entities. A sustained critical-utilization period,
   recovery, node loss/recovery, or router uptime reset stores a bounded evidence
   snapshot with the channel counters and five most suspicious clients
@@ -62,6 +63,26 @@ A positive observation wins even if another observer fails. A missing client can
 These sensors are evidence providers. They do not claim that a device has mains power, infer that a
 light is illuminated, or command a client. Downstream integrations may combine a fresh complete
 observation with other independent evidence.
+
+### Reachability and topology recovery contract
+
+Version 0.9.0 prevents an answering router with an SSH diagnostics problem from being reported as a
+network outage. Each node reachability sensor now publishes `connectivity_state`, `failure_kind`,
+`diagnostic_status`, and `outage_eligible`:
+
+- a transport timeout or refused connection is `unreachable` and outage-eligible;
+- a host-key mismatch, authentication rejection, or command failure proves the endpoint answered,
+  so connectivity remains on while diagnostic status reports a fault; and
+- an unclassified collection failure is unknown and never outage-eligible.
+
+Known AiMesh nodes gain a MAC-scoped SSH fingerprint after their first successful v0.9 poll. Before
+creating that pin, the integration reads the answering node's `lan_hwaddr` and requires it to match
+the controller-discovered MAC; a legacy IP fingerprint alone cannot bind the wrong physical node.
+The legacy IP-scoped fingerprints remain for backward compatibility, but the stable MAC pin wins
+once present. A transport or identity failure triggers one immediate controller rediscovery. The
+integration recollects once only when that discovery changes the MAC-to-IP topology; unchanged
+topology never creates a retry loop. This specifically covers node address movement after a reboot
+without automatically trusting a genuinely changed physical node key.
 
 Existing v0.7 manual MAC-to-device mappings are read as monitored clients without changing their
 entity unique IDs. New monitored clients may use a friendly name without linking a Home Assistant
@@ -168,7 +189,8 @@ not mistaken for client traffic and does not add polling load.
 
 SSH must be enabled on the controller and nodes, with the same username and
 password. A 30-second interval is the recommended starting point. Host-key
-fingerprints are learned on first contact and a later change is rejected.
+fingerprints are learned on first contact. Known node fingerprints are then bound to physical MAC
+identity; an identity-scoped key change is rejected and reported as a diagnostics fault.
 
 ### Manual
 
@@ -186,8 +208,9 @@ and entities with it. The new host must be able to reach the router IPs.
 
 - Credentials are kept in the Home Assistant config entry and are redacted from
   downloadable diagnostics.
-- Host-key fingerprints are recorded after the first successful connection and
-  later changes are rejected. Initial enrollment is trust-on-first-use.
+- Host-key fingerprints are recorded after the first successful connection and later physical-node
+  identity changes are rejected. Initial enrollment is trust-on-first-use; MAC-scoped pins prevent
+  a legitimate node IP movement from silently trusting a different key.
 - Use a router account limited to LAN access where supported.
 
 ## License

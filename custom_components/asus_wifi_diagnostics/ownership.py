@@ -125,9 +125,7 @@ class OwnershipIndex:
             "ha_device_url": f"/config/devices/device/{record.device_id}",
         }
 
-    def suggest(
-        self, name: str | None, node_area_id: str | None = None
-    ) -> list[dict[str, Any]]:
+    def suggest(self, name: str | None, node_area_id: str | None = None) -> list[dict[str, Any]]:
         """Rank review-only HA device candidates from a router hostname."""
         client = _compact(name)
         if len(client) < 4 or client in {"connect", "unknown", "wlan0"}:
@@ -149,9 +147,7 @@ class OwnershipIndex:
             if client == device_name:
                 score = 100
                 evidence.append("exact device name")
-            elif len(device_name) >= 5 and (
-                device_name in client or client in device_name
-            ):
+            elif len(device_name) >= 5 and (device_name in client or client in device_name):
                 score = 90
                 evidence.append("device name appears in network name")
 
@@ -161,9 +157,7 @@ class OwnershipIndex:
 
             manufacturer_tokens = _terms(record.manufacturer)
             client_tokens = _terms(name)
-            if manufacturer and (
-                manufacturer in client or manufacturer_tokens & client_tokens
-            ):
+            if manufacturer and (manufacturer in client or manufacturer_tokens & client_tokens):
                 score = max(score, 55)
                 evidence.append("manufacturer in network name")
 
@@ -189,17 +183,12 @@ class OwnershipIndex:
                 record
                 for record in manufacturer_matches
                 if record.via_device_id is None
-                and any(
-                    child.via_device_id == record.device_id
-                    for child in manufacturer_matches
-                )
+                and any(child.via_device_id == record.device_id for child in manufacturer_matches)
             ]
             if len(roots) == 1:
                 root = roots[0]
                 scored = [item for item in scored if item[1].device_id != root.device_id]
-                scored.append(
-                    (95, root, ["unique integration root for base station hostname"])
-                )
+                scored.append((95, root, ["unique integration root for base station hostname"]))
 
         # Prefer the more specific device name when both a compound name and
         # one of its component words match (for example Dishwasher vs Washer).
@@ -241,11 +230,7 @@ def _terms(value: str | None) -> set[str]:
     if not value:
         return set()
     split = re.sub(r"([a-z])([A-Z])", r"\1 \2", value)
-    return {
-        term.casefold()
-        for term in re.findall(r"[A-Za-z]+", split)
-        if len(term) >= 3
-    }
+    return {term.casefold() for term in re.findall(r"[A-Za-z]+", split) if len(term) >= 3}
 
 
 def _unique_records(
@@ -288,19 +273,14 @@ def build_ownership_index(hass) -> OwnershipIndex:
             (entity.area_id for entity in entities if entity.area_id), None
         )
         area = area_registry.async_get_area(area_id) if area_id else None
-        identifier_integrations = {
-            str(integration) for integration, _ in device.identifiers
-        }
+        identifier_integrations = {str(integration) for integration, _ in device.identifiers}
         record = OwnershipRecord(
             device_id=device.id,
             name=device.name_by_user or device.name or device.id,
             area_id=area_id,
             area_name=area.name if area else None,
             integrations=tuple(
-                sorted(
-                    {entity.platform for entity in entities}
-                    | identifier_integrations
-                )
+                sorted({entity.platform for entity in entities} | identifier_integrations)
             ),
             manufacturer=device.manufacturer,
             model=device.model,
@@ -309,9 +289,7 @@ def build_ownership_index(hass) -> OwnershipIndex:
         by_device_id[device.id] = record
 
         for connection_type, value in device.connections:
-            if connection_type == dr.CONNECTION_NETWORK_MAC and (
-                mac := normalize_mac(value)
-            ):
+            if connection_type == dr.CONNECTION_NETWORK_MAC and (mac := normalize_mac(value)):
                 mac_candidates.setdefault(mac, []).append(record)
 
         for _, identifier in device.identifiers:

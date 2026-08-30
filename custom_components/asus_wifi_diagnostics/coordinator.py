@@ -18,11 +18,13 @@ from .models import (
     MeshNode,
     MonitoredClient,
     NetworkSnapshot,
+    NodeFailureEvidence,
     ProbeSnapshot,
     StationStats,
 )
 from .ownership import OwnershipIndex, build_ownership_index
 from .presence import evaluate_client_presence
+from .topology import rediscovery_needed, topology_changed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +75,8 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
                     self.nodes = discovered
                 self._last_discovery = now
             snapshot = await self.api.collect(self.nodes)
+            if rediscovery_needed(snapshot):
+                snapshot = await self._async_rediscover_changed_topology(snapshot, now)
             for snapshot_key in snapshot.nodes:
                 self.last_node_success[snapshot_key] = now
             for mac, client in self.monitored_clients.items():
@@ -125,6 +129,33 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         """Return the bounded failure classification from the latest poll."""
         key = node.snapshot_key if isinstance(node, MeshNode) else node
         return self.data.failures.get(key) if self.data else None
+
+    @callback
+    def failure_evidence_for(self, node: MeshNode | str) -> NodeFailureEvidence | None:
+        """Return the automation-safe failure semantics from the latest poll."""
+        key = node.snapshot_key if isinstance(node, MeshNode) else node
+        return self.data.failure_evidence.get(key) if self.data else None
+
+    async def _async_rediscover_changed_topology(
+        self, snapshot: NetworkSnapshot, now: datetime
+    ) -> NetworkSnapshot:
+        """Rediscover once and recollect only if stable MAC-to-IP topology changed.
+
+        This is intentionally not a retry loop. Authentication, command, and unknown collection
+        faults do not enter it, while an unchanged discovery returns the original evidence.
+        """
+        previous_nodes = self.nodes
+        try:
+            discovered = await self.api.discover_nodes()
+        except AsusWifiDiagnosticsError as err:
+            _LOGGER.warning("Failure-triggered AiMesh rediscovery failed: %s", err)
+            return snapshot
+        self._last_discovery = now
+        if not topology_changed(previous_nodes, discovered):
+            return snapshot
+        _LOGGER.warning("AiMesh MAC-to-IP topology changed; retrying one diagnostic collection")
+        self.nodes = discovered
+        return await self.api.collect(self.nodes)
 
     @callback
     def association_for(self, mac: str) -> tuple[MeshNode, StationStats] | None:

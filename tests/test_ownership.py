@@ -29,9 +29,7 @@ def test_normalize_network_identities() -> None:
     assert normalize_mac("aabbccddeeff") == "AA:BB:CC:DD:EE:FF"
     assert normalize_ip("192.168.50.41") == "192.168.50.41"
     assert normalize_ip("printer.local") is None
-    assert macs_in_identifier("cfe92100-67c4-11d4-a45f-6855d433cf42") == {
-        "68:55:D4:33:CF:42"
-    }
+    assert macs_in_identifier("cfe92100-67c4-11d4-a45f-6855d433cf42") == {"68:55:D4:33:CF:42"}
 
 
 def test_exact_mac_match_includes_ha_navigation_metadata() -> None:
@@ -76,9 +74,7 @@ def test_manual_mapping_wins_and_ip_is_a_weaker_fallback() -> None:
 
 
 def test_unmapped_client_is_explicit() -> None:
-    result = OwnershipIndex({}, {}, {}).resolve(
-        "84:72:07:EA:92:0D", "192.168.50.41"
-    )
+    result = OwnershipIndex({}, {}, {}).resolve("84:72:07:EA:92:0D", "192.168.50.41")
     assert result == {
         "ha_mapped": False,
         "ha_match_method": "unmapped",
@@ -108,16 +104,12 @@ def test_unique_model_suggestion_is_review_only() -> None:
         model="ES20M(US)",
     )
     index = OwnershipIndex({}, {}, {garage_switch.device_id: garage_switch})
-    result = index.resolve(
-        "28:87:BA:87:8E:30", "192.168.50.204", name="ES20M"
-    )
+    result = index.resolve("28:87:BA:87:8E:30", "192.168.50.204", name="ES20M")
     assert result["ha_mapped"] is False
     assert result["ha_suggestion_count"] == 1
     assert result["ha_suggestions"][0]["ha_device_id"] == "garage-switch"
     assert result["ha_suggestions"][0]["score"] == 85
-    assert result["ha_suggestions"][0]["evidence"] == [
-        "exact model in network name"
-    ]
+    assert result["ha_suggestions"][0]["evidence"] == ["exact model in network name"]
 
 
 def test_ambiguous_model_returns_ranked_candidates_without_mapping() -> None:
@@ -219,8 +211,6 @@ def test_more_specific_compound_device_name_wins() -> None:
         integrations=("smartthings",),
         manufacturer="LGE",
     )
-    index = OwnershipIndex(
-        {}, {}, {dishwasher.device_id: dishwasher, washer.device_id: washer}
-    )
+    index = OwnershipIndex({}, {}, {dishwasher.device_id: dishwasher, washer.device_id: washer})
     suggestions = index.suggest("LG_Smart_DishWasher2_open")
     assert [item["ha_device_id"] for item in suggestions] == ["dishwasher"]

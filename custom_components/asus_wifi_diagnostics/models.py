@@ -157,8 +157,39 @@ class NetworkSnapshot:
     nodes: dict[str, NodeSnapshot]
     probes: dict[str, ProbeSnapshot] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
+    failure_evidence: dict[str, NodeFailureEvidence] = field(default_factory=dict)
     generation: int = 0
     observed_at: datetime | None = None
+
+
+class NodeFailureKind(StrEnum):
+    """Classify why one expected router radio did not return current metrics.
+
+    Reachability is intentionally separate from diagnostic success. An SSH host-key, login, or
+    command failure proves that a network endpoint answered even though this integration could not
+    safely collect from it; only a transport failure is eligible evidence of a LAN outage.
+    """
+
+    UNREACHABLE = "unreachable"
+    HOST_KEY_MISMATCH = "host_key_mismatch"
+    AUTHENTICATION = "authentication"
+    COMMAND = "command"
+    COLLECTION = "collection"
+
+
+@dataclass(frozen=True, slots=True)
+class NodeFailureEvidence:
+    """Describe one bounded node failure for automation-safe downstream use.
+
+    ``transport_reachable`` is true only when the failed attempt still proved an answering SSH
+    endpoint. ``outage_eligible`` is deliberately narrower: House Lighting may count only true
+    transport loss toward a coherent network-outage quorum.
+    """
+
+    kind: NodeFailureKind
+    source_error: str
+    transport_reachable: bool | None
+    outage_eligible: bool
 
 
 class ClientPresenceState(StrEnum):

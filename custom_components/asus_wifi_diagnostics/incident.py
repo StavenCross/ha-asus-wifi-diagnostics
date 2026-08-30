@@ -95,9 +95,7 @@ class IncidentTracker:
         incidents: list[WifiIncident] = []
         if snapshot is None:
             if self._was_reachable is True:
-                incidents.append(
-                    WifiIncident("node_unreachable", {"observed_at": now.isoformat()})
-                )
+                incidents.append(WifiIncident("node_unreachable", {"observed_at": now.isoformat()}))
             self._was_reachable = False
             self._previous_uptime = None
             self._high_started_at = None
@@ -131,8 +129,7 @@ class IncidentTracker:
             if self._high_started_at is None:
                 self._high_started_at = now
             elif (
-                not self._high_emitted
-                and now - self._high_started_at >= HIGH_UTILIZATION_DURATION
+                not self._high_emitted and now - self._high_started_at >= HIGH_UTILIZATION_DURATION
             ):
                 incidents.append(
                     WifiIncident(

@@ -70,7 +70,5 @@ def test_report_groups_metrics_and_incident_evidence() -> None:
     report = build_report(states, histories, incident_histories, START, END)
     assert report["nodes"][0]["history"]["utilization"]["maximum"] == 95.0
     assert report["network_health"][0]["current"] == "on"
-    assert report["incidents"][0]["evidence"]["top_clients"][0]["mac"] == (
-        "11:22:33:44:55:66"
-    )
+    assert report["incidents"][0]["evidence"]["top_clients"][0]["mac"] == ("11:22:33:44:55:66")
     assert "high_utilization" in render_markdown(report)

@@ -202,7 +202,7 @@ def build_report(
     incidents.sort(key=lambda item: item.get("occurred_at") or "")
     return {
         "window": {"start": start.isoformat(), "end": end.isoformat()},
-        "nodes": sorted(nodes.values(), key=lambda item: (item["node_ip"] or "")),
+        "nodes": sorted(nodes.values(), key=lambda item: item["node_ip"] or ""),
         "network_health": health,
         "incidents": incidents,
     }
@@ -286,9 +286,9 @@ def main() -> None:
         if item["entity_id"].startswith("binary_sensor.")
         and (
             "wan status" in str(item.get("attributes", {}).get("friendly_name", "")).lower()
-            or str(item.get("attributes", {}).get("friendly_name", "")).lower().endswith(
-                " internet"
-            )
+            or str(item.get("attributes", {}).get("friendly_name", ""))
+            .lower()
+            .endswith(" internet")
         )
     ]
     incident_ids = [

@@ -12,7 +12,14 @@ from time import monotonic
 
 import asyncssh
 
-from .models import MeshNode, NearbyBss, NetworkSnapshot, NodeSnapshot
+from .models import (
+    MeshNode,
+    NearbyBss,
+    NetworkSnapshot,
+    NodeFailureEvidence,
+    NodeFailureKind,
+    NodeSnapshot,
+)
 from .parser import (
     expand_client_radios,
     parse_assoclist,
@@ -43,6 +50,14 @@ class CannotConnectError(AsusWifiDiagnosticsError):
     """Connection failed."""
 
 
+class HostKeyMismatchError(CannotConnectError):
+    """An answering SSH endpoint did not match the pinned node identity."""
+
+
+class CommandError(CannotConnectError):
+    """An established SSH connection could not complete a read-only command."""
+
+
 class UnsupportedRouterError(AsusWifiDiagnosticsError):
     """No known-safe radio interface was found."""
 
@@ -69,7 +84,25 @@ class AsusWifiDiagnosticsApi:
         self._last_passive_scan: dict[str, float] = {}
         self._generation = 0
 
-    async def _connect(self, host: str) -> asyncssh.SSHClientConnection:
+    @staticmethod
+    def _identity_key(expected_mac: str) -> str:
+        """Return the persisted host-key namespace for one physical router identity."""
+        return f"mac:{expected_mac.upper()}"
+
+    def _record_host_key(self, key: str, fingerprint: str) -> None:
+        """Persist one trusted fingerprint through the config-entry callback."""
+        self.host_keys[key] = fingerprint
+        if self.host_key_callback:
+            self.host_key_callback(key, fingerprint)
+
+    async def _connect(
+        self, host: str, expected_mac: str | None = None
+    ) -> asyncssh.SSHClientConnection:
+        """Connect and verify by stable MAC identity when the caller knows it.
+
+        Legacy installations pinned fingerprints by IP. A successful node poll adds a MAC-scoped
+        pin without deleting that record. The MAC pin then survives legitimate AiMesh IP movement.
+        """
         try:
             connection = await asyncssh.connect(
                 host,
@@ -85,24 +118,45 @@ class AsusWifiDiagnosticsApi:
             raise CannotConnectError(str(err)) from err
 
         fingerprint = connection.get_server_host_key().get_fingerprint("sha256")
-        expected = self.host_keys.get(host)
+        identity_key = self._identity_key(expected_mac) if expected_mac else None
+        expected = self.host_keys.get(identity_key) if identity_key else None
+        if expected is None:
+            expected = self.host_keys.get(host)
         if expected is not None and expected != fingerprint:
             connection.close()
             await connection.wait_closed()
-            raise CannotConnectError(f"Host key changed for {host}")
-        if expected is None:
-            self.host_keys[host] = fingerprint
-            if self.host_key_callback:
-                self.host_key_callback(host, fingerprint)
+            raise HostKeyMismatchError(f"Host key changed for {host}")
+        if identity_key and identity_key not in self.host_keys:
+            try:
+                result = await asyncio.wait_for(
+                    connection.run("nvram get lan_hwaddr", check=True), 8
+                )
+            except (TimeoutError, asyncssh.Error) as err:
+                connection.close()
+                await connection.wait_closed()
+                raise CommandError(
+                    f"Could not verify physical node identity at {host}: {err}"
+                ) from err
+            observed_mac = result.stdout.strip().upper()
+            if observed_mac != expected_mac.upper():
+                connection.close()
+                await connection.wait_closed()
+                raise HostKeyMismatchError(
+                    f"Expected node {expected_mac.upper()} but {host} answered as {observed_mac}"
+                )
+            self._record_host_key(identity_key, fingerprint)
+        if expected is None and host not in self.host_keys:
+            self._record_host_key(host, fingerprint)
         return connection
 
-    async def _run(self, host: str, command: str) -> str:
-        connection = await self._connect(host)
+    async def _run(self, host: str, command: str, expected_mac: str | None = None) -> str:
+        """Run one bounded read-only command against an optionally pinned physical node."""
+        connection = await self._connect(host, expected_mac)
         try:
             result = await asyncio.wait_for(connection.run(command, check=True), 15)
             return result.stdout
         except (TimeoutError, asyncssh.Error) as err:
-            raise CannotConnectError(f"Command failed on {host}: {err}") from err
+            raise CommandError(f"Command failed on {host}: {err}") from err
         finally:
             connection.close()
             await connection.wait_closed()
@@ -121,7 +175,7 @@ class AsusWifiDiagnosticsApi:
 
         async def identify(node: MeshNode) -> list[MeshNode]:
             try:
-                product = (await self._run(node.host, "nvram get productid")).strip()
+                product = (await self._run(node.host, "nvram get productid", node.mac)).strip()
             except AsusWifiDiagnosticsError:
                 product = node.model
             return expand_client_radios(node, product)
@@ -172,7 +226,7 @@ class AsusWifiDiagnosticsApi:
             f"printf '\\n__ASSOC__\\n'; "
             f"wl -i {station} assoclist"
         )
-        output = await self._run(node.host, command)
+        output = await self._run(node.host, command, node.mac)
         channel_raw, remainder = output.split("__BSSID__", 1)
         bssid_raw, remainder = remainder.split("__SSID__", 1)
         ssid_raw, remainder = remainder.split("__SCAN__", 1)
@@ -187,6 +241,7 @@ class AsusWifiDiagnosticsApi:
                 node.host,
                 f"for mac in {macs}; do printf '\\n__STA__ %s\\n' \"$mac\"; "
                 f'wl -i {station} sta_info "$mac"; done',
+                node.mac,
             )
             parts = station_output.split("__STA__ ")[1:]
             for part in parts:
@@ -204,6 +259,7 @@ class AsusWifiDiagnosticsApi:
                     f"wl -i {radio} scan -t passive -c {channel.channel} "
                     f">/dev/null 2>&1 && sleep 1 && "
                     f"wl -i {radio} scanresults 2>/dev/null | head -n 1024",
+                    node.mac,
                 )
                 nearby_bss = tuple(parse_scan_results(fresh_scan_raw))
                 self._last_passive_scan[node.snapshot_key] = monotonic()
@@ -225,8 +281,11 @@ class AsusWifiDiagnosticsApi:
         self._generation += 1
         observed_at = datetime.now(UTC)
         try:
+            controller = next((node for node in nodes if node.is_controller), None)
             leases_raw = await self._run(
-                self.host, "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true"
+                self.host,
+                "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true",
+                controller.mac if controller else None,
             )
             leases = parse_leases(leases_raw)
         except AsusWifiDiagnosticsError as err:
@@ -272,15 +331,23 @@ class AsusWifiDiagnosticsApi:
 
         snapshots: dict[str, NodeSnapshot] = {}
         failures: dict[str, str] = {}
+        failure_evidence: dict[str, NodeFailureEvidence] = {}
         for node, result in zip(nodes, results, strict=True):
             if isinstance(result, Exception):
                 _LOGGER.warning(
                     "Could not collect Wi-Fi diagnostics from %s: %s", node.host, result
                 )
                 failures[node.snapshot_key] = result.__class__.__name__
+                failure_evidence[node.snapshot_key] = _failure_evidence(result)
                 continue
             if result is None:
                 failures[node.snapshot_key] = "UnknownCollectionError"
+                failure_evidence[node.snapshot_key] = NodeFailureEvidence(
+                    kind=NodeFailureKind.COLLECTION,
+                    source_error="UnknownCollectionError",
+                    transport_reachable=None,
+                    outage_eligible=False,
+                )
                 continue
             stations = []
             for station in result.stations:
@@ -337,6 +404,32 @@ class AsusWifiDiagnosticsApi:
         return NetworkSnapshot(
             nodes=snapshots,
             failures=failures,
+            failure_evidence=failure_evidence,
             generation=self._generation,
             observed_at=observed_at,
         )
+
+
+def _failure_evidence(error: Exception) -> NodeFailureEvidence:
+    """Convert implementation exceptions into the stable reachability evidence contract."""
+    if isinstance(error, HostKeyMismatchError):
+        kind = NodeFailureKind.HOST_KEY_MISMATCH
+        reachable: bool | None = True
+    elif isinstance(error, AuthenticationError):
+        kind = NodeFailureKind.AUTHENTICATION
+        reachable = True
+    elif isinstance(error, CommandError):
+        kind = NodeFailureKind.COMMAND
+        reachable = True
+    elif isinstance(error, CannotConnectError):
+        kind = NodeFailureKind.UNREACHABLE
+        reachable = False
+    else:
+        kind = NodeFailureKind.COLLECTION
+        reachable = None
+    return NodeFailureEvidence(
+        kind=kind,
+        source_error=error.__class__.__name__,
+        transport_reachable=reachable,
+        outage_eligible=kind is NodeFailureKind.UNREACHABLE,
+    )
