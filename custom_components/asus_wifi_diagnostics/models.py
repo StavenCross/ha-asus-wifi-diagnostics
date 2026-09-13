@@ -155,11 +155,23 @@ class NetworkSnapshot:
     """
 
     nodes: dict[str, NodeSnapshot]
+    health: dict[str, NetworkHealthProbe] = field(default_factory=dict)
     probes: dict[str, ProbeSnapshot] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
     failure_evidence: dict[str, NodeFailureEvidence] = field(default_factory=dict)
     generation: int = 0
     observed_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkHealthProbe:
+    """Describe one independent network-layer health observation from the HA host."""
+
+    key: str
+    target: str
+    healthy: bool
+    latency_ms: int
+    failure: str | None = None
 
 
 class NodeFailureKind(StrEnum):

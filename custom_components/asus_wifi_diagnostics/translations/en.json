@@ -98,7 +98,10 @@
     },
     "binary_sensor": {
       "congested": {"name": "2.4 GHz congested"},
-      "reachable": {"name": "Diagnostics reachable"}
+      "reachable": {"name": "Diagnostics reachable"},
+      "lan_reachability": {"name": "LAN gateway reachable"},
+      "router_dns": {"name": "Router DNS healthy"},
+      "direct_dns": {"name": "Direct DNS healthy"}
     },
     "event": {
       "incident": {"name": "Wi-Fi incident"}

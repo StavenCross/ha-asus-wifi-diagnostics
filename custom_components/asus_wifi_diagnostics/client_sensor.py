@@ -48,12 +48,12 @@ class ClientPresenceSensor(CoordinatorEntity[AsusWifiDiagnosticsCoordinator], Se
     @property
     def native_value(self) -> str:
         """Return the versioned three-state evidence value for Recorder and consumers."""
-        return self.coordinator.presence_for(self._client.mac).state.value
+        return self.coordinator.presence_for(self._client).state.value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose bounded provenance required to qualify this observation downstream."""
-        observation = self.coordinator.presence_for(self._client.mac)
+        observation = self.coordinator.presence_for(self._client)
         base: dict[str, Any] = {
             "contract_version": PRESENCE_CONTRACT_VERSION,
             "client_mac": self._client.mac,

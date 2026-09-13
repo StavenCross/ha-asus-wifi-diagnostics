@@ -20,6 +20,7 @@ from .models import (
     NodeFailureKind,
     NodeSnapshot,
 )
+from .network_health import collect_network_health
 from .parser import (
     expand_client_radios,
     parse_assoclist,
@@ -119,9 +120,11 @@ class AsusWifiDiagnosticsApi:
 
         fingerprint = connection.get_server_host_key().get_fingerprint("sha256")
         identity_key = self._identity_key(expected_mac) if expected_mac else None
-        expected = self.host_keys.get(identity_key) if identity_key else None
-        if expected is None:
-            expected = self.host_keys.get(host)
+        # A controller-discovered MAC is the stable identity. Do not let an obsolete IP-scoped key
+        # prevent the guarded migration when AiMesh legitimately moves known nodes between
+        # addresses. With no MAC pin, the lan_hwaddr check below must pass before this key is
+        # trusted. IP pins remain authoritative only when no expected physical identity exists.
+        expected = self.host_keys.get(identity_key) if identity_key else self.host_keys.get(host)
         if expected is not None and expected != fingerprint:
             connection.close()
             await connection.wait_closed()
@@ -153,13 +156,28 @@ class AsusWifiDiagnosticsApi:
         """Run one bounded read-only command against an optionally pinned physical node."""
         connection = await self._connect(host, expected_mac)
         try:
+            return await self._run_connected(connection, host, command)
+        finally:
+            connection.close()
+            await connection.wait_closed()
+
+    async def _run_connected(
+        self,
+        connection: asyncssh.SSHClientConnection,
+        host: str,
+        command: str,
+    ) -> str:
+        """Run one bounded command through a connection already verified for this node.
+
+        A physical router exposes multiple radios. Reusing one verified transport for their
+        sequential commands avoids making the router authenticate several new SSH sessions during
+        every poll while retaining the same per-command timeout and failure classification.
+        """
+        try:
             result = await asyncio.wait_for(connection.run(command, check=True), 15)
             return result.stdout
         except (TimeoutError, asyncssh.Error) as err:
             raise CommandError(f"Command failed on {host}: {err}") from err
-        finally:
-            connection.close()
-            await connection.wait_closed()
 
     async def discover_nodes(self) -> list[MeshNode]:
         """Discover supported AiMesh nodes and explicitly enrolled standalone APs."""
@@ -212,8 +230,12 @@ class AsusWifiDiagnosticsApi:
         return expand_client_radios(node)
 
     async def _collect_node(
-        self, node: MeshNode, leases: dict[str, tuple[str, str | None]]
+        self,
+        node: MeshNode,
+        leases: dict[str, tuple[str, str | None]],
+        connection: asyncssh.SSHClientConnection,
     ) -> NodeSnapshot:
+        """Collect one radio through its physical node's shared poll connection."""
         radio = shlex.quote(node.radio_interface)
         station = shlex.quote(node.station_interface)
         command = (
@@ -226,7 +248,7 @@ class AsusWifiDiagnosticsApi:
             f"printf '\\n__ASSOC__\\n'; "
             f"wl -i {station} assoclist"
         )
-        output = await self._run(node.host, command, node.mac)
+        output = await self._run_connected(connection, node.host, command)
         channel_raw, remainder = output.split("__BSSID__", 1)
         bssid_raw, remainder = remainder.split("__SSID__", 1)
         ssid_raw, remainder = remainder.split("__SCAN__", 1)
@@ -237,11 +259,11 @@ class AsusWifiDiagnosticsApi:
         stations = []
         if station_macs:
             macs = " ".join(shlex.quote(mac) for mac in station_macs)
-            station_output = await self._run(
+            station_output = await self._run_connected(
+                connection,
                 node.host,
                 f"for mac in {macs}; do printf '\\n__STA__ %s\\n' \"$mac\"; "
                 f'wl -i {station} sta_info "$mac"; done',
-                node.mac,
             )
             parts = station_output.split("__STA__ ")[1:]
             for part in parts:
@@ -254,12 +276,12 @@ class AsusWifiDiagnosticsApi:
         last_scan = self._last_passive_scan.get(node.snapshot_key, 0)
         if monotonic() - last_scan >= _PASSIVE_SCAN_INTERVAL_SECONDS:
             try:
-                fresh_scan_raw = await self._run(
+                fresh_scan_raw = await self._run_connected(
+                    connection,
                     node.host,
                     f"wl -i {radio} scan -t passive -c {channel.channel} "
                     f">/dev/null 2>&1 && sleep 1 && "
                     f"wl -i {radio} scanresults 2>/dev/null | head -n 1024",
-                    node.mac,
                 )
                 nearby_bss = tuple(parse_scan_results(fresh_scan_raw))
                 self._last_passive_scan[node.snapshot_key] = monotonic()
@@ -280,32 +302,61 @@ class AsusWifiDiagnosticsApi:
         """Collect a network snapshot, preserving reachable nodes."""
         self._generation += 1
         observed_at = datetime.now(UTC)
-        try:
-            controller = next((node for node in nodes if node.is_controller), None)
-            leases_raw = await self._run(
-                self.host,
-                "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true",
-                controller.mac if controller else None,
-            )
-            leases = parse_leases(leases_raw)
-        except AsusWifiDiagnosticsError as err:
-            _LOGGER.warning("Could not read DHCP leases from %s: %s", self.host, err)
-            leases = {}
+        # Complete the small host-side probes before the heavier router parsing so their latency
+        # reflects the network path rather than event-loop delay from processing station tables.
+        health = await collect_network_health(self.host)
         # Keep different AiMesh nodes concurrent, but collect the two radios on
         # each physical node sequentially to avoid overlapping wl operations.
         by_host: dict[str, list[tuple[int, MeshNode]]] = {}
         for index, node in enumerate(nodes):
             by_host.setdefault(node.host, []).append((index, node))
         results: list[NodeSnapshot | Exception | None] = [None] * len(nodes)
+        connections: dict[str, asyncssh.SSHClientConnection] = {}
+        connection_errors: dict[str, Exception] = {}
+
+        async def connect_host(host_nodes: list[tuple[int, MeshNode]]) -> None:
+            physical_node = host_nodes[0][1]
+            try:
+                connections[physical_node.host] = await self._connect(
+                    physical_node.host, physical_node.mac
+                )
+            except Exception as err:
+                connection_errors[physical_node.host] = err
+
+        await asyncio.gather(*(connect_host(host_nodes) for host_nodes in by_host.values()))
+        leases: dict[str, tuple[str, str | None]] = {}
+        controller_connection = connections.get(self.host)
+        if controller_connection is not None:
+            try:
+                leases_raw = await self._run_connected(
+                    controller_connection,
+                    self.host,
+                    "cat /var/lib/misc/dnsmasq.leases 2>/dev/null || true",
+                )
+                leases = parse_leases(leases_raw)
+            except AsusWifiDiagnosticsError as err:
+                _LOGGER.warning("Could not read DHCP leases from %s: %s", self.host, err)
 
         async def collect_host(host_nodes: list[tuple[int, MeshNode]]) -> None:
+            host = host_nodes[0][1].host
+            connection = connections.get(host)
+            if connection is None:
+                error = connection_errors[host]
+                for index, _ in host_nodes:
+                    results[index] = error
+                return
             for index, node in host_nodes:
                 try:
-                    results[index] = await self._collect_node(node, leases)
+                    results[index] = await self._collect_node(node, leases, connection)
                 except Exception as err:
                     results[index] = err
 
-        await asyncio.gather(*(collect_host(host_nodes) for host_nodes in by_host.values()))
+        try:
+            await asyncio.gather(*(collect_host(host_nodes) for host_nodes in by_host.values()))
+        finally:
+            for connection in connections.values():
+                connection.close()
+            await asyncio.gather(*(connection.wait_closed() for connection in connections.values()))
         own_bssids = {
             result.bssid
             for result in results
@@ -403,6 +454,7 @@ class AsusWifiDiagnosticsApi:
             )
         return NetworkSnapshot(
             nodes=snapshots,
+            health=health,
             failures=failures,
             failure_evidence=failure_evidence,
             generation=self._generation,

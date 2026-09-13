@@ -147,12 +147,44 @@ class AsusWifiDiagnosticsOptionsFlow(OptionsFlowWithReload):
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         """Show only the management actions applicable to current options."""
-        options = ["add_client", "add_access_point"]
+        options = ["configure_polling", "add_client", "add_access_point"]
         if monitored_clients(self.config_entry.options):
             options.append("remove_client")
         if additional_access_points(self.config_entry.options):
             options.append("remove_access_point")
         return self.async_show_menu(step_id="init", menu_options=options)
+
+    async def async_step_configure_polling(self, user_input=None) -> ConfigFlowResult:
+        """Tune the shared poll cadence without recreating the config entry."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self.config_entry.options, **user_input},
+            )
+        return self.async_show_form(
+            step_id="configure_polling",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SCAN_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_SCAN_INTERVAL,
+                            self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=300)),
+                    vol.Required(
+                        CONF_CRITICAL_UTILIZATION,
+                        default=self.config_entry.options.get(
+                            CONF_CRITICAL_UTILIZATION,
+                            self.config_entry.data.get(
+                                CONF_CRITICAL_UTILIZATION,
+                                DEFAULT_CRITICAL_UTILIZATION,
+                            ),
+                        ),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=70, max=100)),
+                }
+            ),
+        )
 
     async def async_step_add_client(self, user_input=None) -> ConfigFlowResult:
         """Enroll one MAC with an optional HA device and explicit observer profile."""

@@ -20,6 +20,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MIN_SCAN_INTERVAL,
     PLATFORMS,
 )
 from .coordinator import AsusWifiDiagnosticsCoordinator
@@ -50,10 +51,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: AsusWifiDiagnosticsConfi
             host: access_point.observer_profile for host, access_point in standalone.items()
         },
     )
+    configured_scan_interval = entry.options.get(
+        CONF_SCAN_INTERVAL,
+        entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+    )
+    # Entries created before v0.9.1 may persist the old 30-second default in entry data. Enforce
+    # the new router-safe floor even when that legacy value cannot be rewritten through an options
+    # flow, while still allowing operators to choose any supported slower cadence.
+    effective_scan_interval = max(configured_scan_interval, MIN_SCAN_INTERVAL)
     coordinator = AsusWifiDiagnosticsCoordinator(
         hass,
         api,
-        timedelta(seconds=entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
+        timedelta(seconds=effective_scan_interval),
         manual_overrides=dict(entry.options.get(CONF_CLIENT_OVERRIDES, {})),
         monitored_clients=clients,
     )

@@ -20,5 +20,6 @@ async def async_get_config_entry_diagnostics(
     coordinator = entry.runtime_data
     return {
         "config": async_redact_data(dict(entry.data), TO_REDACT),
+        "effective_scan_interval_seconds": int(coordinator.update_interval.total_seconds()),
         "snapshot": asdict(coordinator.data) if coordinator.data else None,
     }

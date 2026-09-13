@@ -32,6 +32,8 @@ For each AiMesh node:
   optional Home Assistant device ownership preserves the existing entity identity
 - router uptime and a node reachability sensor that separates transport loss from SSH diagnostic
   trust, authentication, command, and collection faults
+- controller-level LAN gateway, router-DNS, and direct public-DNS connectivity sensors with
+  bounded latency and failure-class attributes, measured from the Home Assistant host
 - sparse Wi-Fi incident event entities. A sustained critical-utilization period,
   recovery, node loss/recovery, or router uptime reset stores a bounded evidence
   snapshot with the channel counters and five most suspicious clients
@@ -43,6 +45,14 @@ The integration uses only bounded, read-only ASUSWRT commands (`nvram get`,
 `wl scan`, `wl scanresults`, `wl assoclist`, `wl sta_info`, `/proc/uptime`, and a
 dnsmasq lease read).
 It never changes router configuration.
+
+Normal collection reuses one authenticated SSH connection per physical ASUS node for all of that
+node's radios during a poll. The default poll interval is two minutes; the current-channel passive
+scan remains limited to once every 15 minutes. This keeps recorder evidence useful without turning
+diagnostics into a continuous router authentication workload. Existing entries which stored the
+older 30-second default are automatically clamped to the same two-minute minimum at runtime. The
+downloadable integration diagnostics report the effective interval separately from legacy stored
+config so the active cadence is directly verifiable.
 
 ### Monitored-client presence contract
 
@@ -77,7 +87,9 @@ network outage. Each node reachability sensor now publishes `connectivity_state`
 
 Known AiMesh nodes gain a MAC-scoped SSH fingerprint after their first successful v0.9 poll. Before
 creating that pin, the integration reads the answering node's `lan_hwaddr` and requires it to match
-the controller-discovered MAC; a legacy IP fingerprint alone cannot bind the wrong physical node.
+the controller-discovered MAC. An obsolete IP-scoped fingerprint cannot block this guarded
+migration after AiMesh moves known nodes between addresses, and it cannot bind the wrong physical
+node because the MAC check must pass before the new key is trusted.
 The legacy IP-scoped fingerprints remain for backward compatibility, but the stable MAC pin wins
 once present. A transport or identity failure triggers one immediate controller rediscovery. The
 integration recollects once only when that discovery changes the MAC-to-IP topology; unchanged
@@ -142,7 +154,7 @@ token in the environment rather than command history.
 The incident event is deliberately sparse: high utilization must remain above
 the configured critical threshold for one minute before it is recorded. Client
 and nearby-network lists are bounded so Recorder does not ingest a full network
-inventory every 30 seconds.
+inventory every two minutes.
 
 ### Home Assistant device ownership
 
@@ -158,6 +170,10 @@ association, open **Settings > Devices & services > ASUS Wi-Fi Diagnostics >
 Configure > Add a monitored client**. Enter the network client's MAC, name, observer
 profile, and expected band. Linking a Home Assistant device is optional. Records are
 stored in config-entry options and included in normal Home Assistant backups.
+
+Entity setup evaluates the immutable monitored-client record that created the entity. This keeps
+the sensor fail-closed if another supported options flow finishes while the integration is still
+reloading; an overlapping reload must not turn a newly enrolled MAC into a setup-time `KeyError`.
 
 ## Supported hardware
 
@@ -188,7 +204,7 @@ not mistaken for client traffic and does not add polling load.
    to reuse them without displaying or retyping the password.
 
 SSH must be enabled on the controller and nodes, with the same username and
-password. A 30-second interval is the recommended starting point. Host-key
+password. A 120-second interval is the recommended starting point. Host-key
 fingerprints are learned on first contact. Known node fingerprints are then bound to physical MAC
 identity; an identity-scoped key change is rejected and reported as a diagnostics fault.
 

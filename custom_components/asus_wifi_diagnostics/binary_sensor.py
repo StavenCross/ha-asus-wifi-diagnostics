@@ -26,6 +26,27 @@ REACHABLE_DESCRIPTION = BinarySensorEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
+NETWORK_HEALTH_DESCRIPTIONS = (
+    BinarySensorEntityDescription(
+        key="lan_reachability",
+        translation_key="lan_reachability",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BinarySensorEntityDescription(
+        key="router_dns",
+        translation_key="router_dns",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    BinarySensorEntityDescription(
+        key="direct_dns",
+        translation_key="direct_dns",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -34,7 +55,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up congestion sensors."""
     coordinator = entry.runtime_data
-    threshold = entry.data.get(CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION)
+    threshold = entry.options.get(
+        CONF_CRITICAL_UTILIZATION,
+        entry.data.get(CONF_CRITICAL_UTILIZATION, DEFAULT_CRITICAL_UTILIZATION),
+    )
     async_add_entities(
         AsusWifiCongestionSensor(coordinator, node, threshold) for node in coordinator.nodes
     )
@@ -43,6 +67,15 @@ async def async_setup_entry(
         for node in coordinator.nodes
         if node.band == BAND_2_4_GHZ
     )
+    controller = next(
+        (node for node in coordinator.nodes if node.is_controller and node.band == BAND_2_4_GHZ),
+        None,
+    )
+    if controller is not None:
+        async_add_entities(
+            AsusNetworkHealthSensor(coordinator, controller, description)
+            for description in NETWORK_HEALTH_DESCRIPTIONS
+        )
 
 
 class AsusWifiCongestionSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
@@ -117,4 +150,38 @@ class AsusWifiReachabilitySensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
             ),
             "outage_eligible": evidence.outage_eligible if evidence else False,
             "diagnostic_status": "healthy" if evidence is None else "fault",
+        }
+
+
+class AsusNetworkHealthSensor(AsusWifiDiagnosticsEntity, BinarySensorEntity):
+    """Expose one independent network-layer check on the controller device."""
+
+    def __init__(self, coordinator, node, description: BinarySensorEntityDescription) -> None:
+        self.entity_description = description
+        super().__init__(coordinator, node)
+
+    @property
+    def available(self) -> bool:
+        """Remain available independently of the radio collection outcome."""
+        return self.coordinator.data is not None and self.entity_description.key in (
+            self.coordinator.data.health
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether the selected layer completed its bounded probe."""
+        probe = self.coordinator.data.health.get(self.entity_description.key)
+        return probe.healthy if probe else None
+
+    @property
+    def extra_state_attributes(self):
+        """Publish latency, target, and a bounded failure class for incident correlation."""
+        probe = self.coordinator.data.health.get(self.entity_description.key)
+        if probe is None:
+            return {}
+        return {
+            "diagnostic_key": probe.key,
+            "target": probe.target,
+            "latency_ms": probe.latency_ms,
+            "failure": probe.failure,
         }

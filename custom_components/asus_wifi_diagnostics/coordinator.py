@@ -168,13 +168,17 @@ class AsusWifiDiagnosticsCoordinator(DataUpdateCoordinator[NetworkSnapshot]):
         return find_association(self.data, mac)
 
     @callback
-    def presence_for(self, mac: str):
+    def presence_for(self, client: MonitoredClient | str):
         """Return the typed current-generation observation for one enrolled client.
 
-        Client sensors call this single boundary so association completeness, profile selection,
-        and failure handling cannot drift between entity state and attributes.
+        Client sensors pass their immutable client record so entity setup and the coordinator use
+        the same configuration generation even if an options-flow reload overlaps platform setup.
+        The MAC form remains supported for internal callers that resolve through the coordinator's
+        own snapshot. This keeps association completeness, profile selection, and failure handling
+        behind one boundary without allowing a transient options race to raise ``KeyError``.
         """
-        client = self.monitored_clients[mac.upper()]
+        if isinstance(client, str):
+            client = self.monitored_clients[client.upper()]
         return evaluate_client_presence(client, self.nodes, self.data)
 
     @callback

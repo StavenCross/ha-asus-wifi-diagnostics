@@ -32,11 +32,50 @@ chanspec tx inbss obss nocat nopkt doze txop goodtx badtx glitch badplcp knoise 
 """
 
 
+@pytest.fixture(autouse=True)
+def stub_network_health(monkeypatch) -> None:
+    """Keep collector tests focused on the router transport boundary."""
+
+    async def fake_health(router_host: str) -> dict:
+        assert router_host == NODE.host
+        return {}
+
+    api_module = import_module("custom_components.asus_wifi_diagnostics.api")
+    monkeypatch.setattr(api_module, "collect_network_health", fake_health)
+
+
+def install_fake_connection(api, runner) -> list[tuple[str, str | None]]:
+    """Install one reusable fake transport and return its connection attempts."""
+    attempts: list[tuple[str, str | None]] = []
+
+    class FakeConnection:
+        async def run(self, command: str, check: bool):
+            assert check is True
+
+            class Result:
+                stdout = runner(command)
+
+            return Result()
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def fake_connect(host: str, expected_mac: str | None = None):
+        attempts.append((host, expected_mac))
+        return FakeConnection()
+
+    api._connect = fake_connect  # type: ignore[method-assign]
+    return attempts
+
+
 def test_collects_router_uptime() -> None:
     api = AsusWifiDiagnosticsApi("192.168.50.1", "user", "password")
     api._last_passive_scan[NODE.snapshot_key] = monotonic()
 
-    async def fake_run(host: str, command: str, expected_mac: str | None = None) -> str:
+    def fake_run(command: str) -> str:
         if "dnsmasq.leases" in command:
             return ""
         return (
@@ -46,12 +85,13 @@ def test_collects_router_uptime() -> None:
             "\n__ASSOC__\n"
         )
 
-    api._run = fake_run  # type: ignore[method-assign]
+    attempts = install_fake_connection(api, fake_run)
     result = asyncio.run(api.collect([NODE]))
     assert result.nodes[NODE.mac].router_uptime_seconds == 12345
     assert result.failures == {}
     assert result.generation == 1
     assert result.observed_at is not None
+    assert attempts == [(NODE.host, NODE.mac)]
 
 
 def test_collect_keeps_24_and_5_ghz_snapshots_separate() -> None:
@@ -68,7 +108,7 @@ def test_collect_keeps_24_and_5_ghz_snapshots_separate() -> None:
     api._last_passive_scan[NODE.snapshot_key] = monotonic()
     api._last_passive_scan[five_ghz.snapshot_key] = monotonic()
 
-    async def fake_run(host: str, command: str, expected_mac: str | None = None) -> str:
+    def fake_run(command: str) -> str:
         if "dnsmasq.leases" in command:
             return ""
         channel = 149 if "eth4" in command else 11
@@ -80,21 +120,20 @@ def test_collect_keeps_24_and_5_ghz_snapshots_separate() -> None:
             "\n__ASSOC__\n"
         )
 
-    api._run = fake_run  # type: ignore[method-assign]
+    attempts = install_fake_connection(api, fake_run)
     result = asyncio.run(api.collect([NODE, five_ghz]))
     assert result.nodes[NODE.snapshot_key].channel.channel == 11
     assert result.nodes[five_ghz.snapshot_key].channel.channel == 149
+    assert attempts == [(NODE.host, NODE.mac)]
 
 
 def test_collect_returns_node_failure_instead_of_stale_success() -> None:
     api = AsusWifiDiagnosticsApi("192.168.50.1", "user", "password")
 
-    async def fake_run(host: str, command: str, expected_mac: str | None = None) -> str:
-        if "dnsmasq.leases" in command:
-            return ""
+    async def fake_connect(host: str, expected_mac: str | None = None):
         raise CannotConnectError("offline")
 
-    api._run = fake_run  # type: ignore[method-assign]
+    api._connect = fake_connect  # type: ignore[method-assign]
     result = asyncio.run(api.collect([NODE]))
     assert result.nodes == {}
     assert result.failures == {NODE.mac: "CannotConnectError"}
@@ -249,3 +288,58 @@ def test_first_mac_pin_rejects_legacy_ip_that_now_answers_as_another_node(monkey
         asyncio.run(api._connect(NODE.host, NODE.mac))
 
     assert f"mac:{NODE.mac}" not in api.host_keys
+
+
+def test_first_mac_pin_replaces_stale_ip_key_after_identity_matches(monkeypatch) -> None:
+    """A stale IP pin cannot block a controller-MAC-verified identity migration."""
+
+    class FakeKey:
+        """Return the new key presented by the expected physical node."""
+
+        def get_fingerprint(self, algorithm: str) -> str:
+            assert algorithm == "sha256"
+            return "SHA256:new-node-key"
+
+    class FakeResult:
+        """Report the controller-discovered physical identity."""
+
+        stdout = f"{NODE.mac}\n"
+
+    class FakeConnection:
+        """Provide the key and identity command used by guarded migration."""
+
+        def get_server_host_key(self):
+            return FakeKey()
+
+        async def run(self, command: str, check: bool):
+            assert command == "nvram get lan_hwaddr"
+            assert check is True
+            return FakeResult()
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    connection = FakeConnection()
+
+    async def fake_connect(*args, **kwargs):
+        return connection
+
+    api_module = import_module("custom_components.asus_wifi_diagnostics.api")
+    monkeypatch.setattr(api_module.asyncssh, "connect", fake_connect, raising=False)
+    recorded: dict[str, str] = {}
+    api = AsusWifiDiagnosticsApi(
+        NODE.host,
+        "user",
+        "password",
+        host_keys={NODE.host: "SHA256:obsolete-ip-key"},
+        host_key_callback=recorded.__setitem__,
+    )
+
+    result = asyncio.run(api._connect(NODE.host, NODE.mac))
+
+    assert result is connection
+    assert recorded[f"mac:{NODE.mac}"] == "SHA256:new-node-key"
+    assert api.host_keys[NODE.host] == "SHA256:obsolete-ip-key"
